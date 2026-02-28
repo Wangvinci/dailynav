@@ -219,20 +219,31 @@ struct AppTheme {
     static let accentSoft  = Color(red:0.380, green:0.820, blue:0.700).opacity(0.12)
     static let accentGlow  = Color(red:0.380, green:0.820, blue:0.700).opacity(0.18)
     // 赛博蓝 — 次要强调色
-    static let cyberBlue   = Color(red:0.200, green:0.620, blue:1.000)   // #33_9EFF 霓虹蓝
-    static let cyberPurple = Color(red:0.560, green:0.380, blue:0.980)   // 极光紫
+    static let cyberBlue   = Color(red:0.230, green:0.660, blue:0.960)   // #3BA8F5 深海蓝 (aligns with palette[2])
+    static let cyberPurple = Color(red:0.630, green:0.550, blue:0.960)   // #A08CF5 雾霭紫 (aligns with palette[7])
     // 莫奈雾紫·赛博混血
     static let monetMauve  = Color(red:0.720, green:0.480, blue:0.820)   // 发光紫藤
 
-    // ── 目标调色板：赛博·莫奈 六色 ─────────────────────────
-    // 更亮、更发光、依然协调
+    // ── 目标调色板：光谱收敛 十色 ────────────────────────────
+    // 设计原则：围绕"碧玉–海洋"冷轴，暖系(橙/珊瑚)形成呼应
+    // 去掉孤立的饱和纯紫；紫色统一偏蓝调以保持光谱和谐
+    // Group A — 冷系（海洋·碧玉）
+    // Group B — 暖系（琥珀·珊瑚）
+    // Group C — 桥接（雾紫·樱粉·嫩绿）
     static let palette: [Color] = [
-        Color(red:0.380, green:0.820, blue:0.700),   // 电光荷影  Cyber Waterlily
-        Color(red:0.380, green:0.660, blue:1.000),   // 霓虹水蓝  Neon Azure
-        Color(red:0.700, green:0.480, blue:0.980),   // 极光紫    Aurora Violet
-        Color(red:0.980, green:0.700, blue:0.360),   // 钛金橙    Titanium Amber
-        Color(red:0.960, green:0.520, blue:0.620),   // 玫瑰霓虹  Rose Neon
-        Color(red:0.420, green:0.860, blue:0.560),   // 苔草电绿  Moss Electric
+        // ── Group A: 冷系 ──
+        Color(red:0.380, green:0.820, blue:0.700),   // #61D1B3 荷影绿  Waterlily Cyan
+        Color(red:0.300, green:0.750, blue:0.850),   // #4DBFD9 冰川青  Glacier Teal
+        Color(red:0.230, green:0.660, blue:0.960),   // #3BA8F5 深海蓝  Deep Ocean
+        Color(red:0.420, green:0.750, blue:0.670),   // #6ABFAA 薄荷绿  Soft Mint
+        // ── Group B: 暖系 ──
+        Color(red:0.960, green:0.640, blue:0.320),   // #F5A352 琥珀橙  Amber Pulse
+        Color(red:0.940, green:0.440, blue:0.380),   // #F07060 珊瑚红  Coral Neon
+        Color(red:0.960, green:0.780, blue:0.260),   // #F5C842 柠檬黄  Lemon Zest
+        // ── Group C: 桥接 ──
+        Color(red:0.630, green:0.550, blue:0.960),   // #A08CF5 雾霭紫  Mist Violet (蓝调紫，和谐)
+        Color(red:0.780, green:0.490, blue:0.780),   // #C87EC8 樱花玫  Sakura Rose
+        Color(red:0.480, green:0.800, blue:0.540),   // #7ACC8A 嫩芽绿  Spring Shoot
     ]
 
     // ── 语义色 ────────────────────────────────────────────────
@@ -249,6 +260,18 @@ struct AppTheme {
     static let glassBase:   Double = 0.22          // glass fill base opacity
     static let glassBorder: Double = 0.11          // glass border opacity
     static let neonGlow:    Double = 0.35          // neon glow max opacity
+
+    // ── Inspire page — dream glass tokens ─────────────────────
+    /// Ultra-thin frosted card fill (氛围层基底)
+    static let dreamCardFill = Color(red:0.094, green:0.114, blue:0.153).opacity(0.82)
+    /// Soft teal glow for the breathing pulse (呼吸光 — 主调)
+    static let dreamGlow  = Color(red:0.380, green:0.820, blue:0.700).opacity(0.18)
+    /// Complementary violet bloom (补色)
+    static let dreamBloom = Color(red:0.630, green:0.550, blue:0.960).opacity(0.10)
+    /// Art atmosphere base opacity — adjustable for performance
+    static let artOpacity: Double = 0.045    // 名画层透明度（0 = 纯色模式降级）
+    /// Vignette darkness for art layer
+    static let vignetteDepth: Double = 0.72
 }
 
 extension Color {
@@ -301,10 +324,35 @@ class AppStore: ObservableObject {
     /// 当前「今日」—— 调试时可覆盖
     var today: Date { simulatedDate ?? Date() }
 
-    func t(_ zh: String, _ en: String) -> String { language == .chinese ? zh : en }
+    /// 2-language legacy (zh/en only) — prefer t(key:) for full i18n
+    func t(_ zh: String, _ en: String) -> String {
+        switch language {
+        case .chinese: return zh
+        default: return en
+        }
+    }
+    /// 5-language localised string
+    func t(zh: String, en: String, ja: String, ko: String, es: String) -> String {
+        switch language {
+        case .chinese:  return zh
+        case .english:  return en
+        case .japanese: return ja
+        case .korean:   return ko
+        case .spanish:  return es
+        }
+    }
 
     /// Strongly-typed L10n lookup — called from @MainActor Views (safe)
     func t(key: (AppLanguage) -> String) -> String { key(language) }
+    /// Localise a goal category string that was stored in Chinese (legacy)
+    func localizeCategory(_ zhCategory: String) -> String {
+        let cats = SuggestionProvider.categoryOptions(language)
+        let zhCats = SuggestionProvider.categoryOptions(.chinese)
+        if let idx = zhCats.firstIndex(of: zhCategory), idx < cats.count {
+            return cats[idx]
+        }
+        return zhCategory  // fallback: return as-is
+    }
 
     /// Debug: prints locale/language/sample to console for verification
     func logCurrentLocale() {
@@ -939,7 +987,7 @@ class AppStore: ObservableObject {
 
     // 智能总结：优先使用关键词，fallback 到全文摘要
     func smartSummary(type: Int, label: String, dates: [Date]) -> String {
-        let isCN = language == .chinese
+        let isCN = (language == .chinese || language == .japanese || language == .korean)
         let avg = avgCompletion(for:dates)
         let mood = avgMood(for:dates)
         let activeDays = dates.filter { completionRate(for:$0) > 0 }.count
@@ -993,7 +1041,14 @@ class AppStore: ObservableObject {
             let prevWeekDates = (0..<7).compactMap { cal.date(byAdding:.day, value:$0, to:prevWeekStart) }
             let prevWeekYear = cal.component(.year, from:prevWeekEnd)
             let prevWeekNum = cal.component(.weekOfYear, from:prevWeekEnd)
-            let prevLabel = language == .chinese ? "\(prevWeekYear)年第\(prevWeekNum)周" : "Week \(prevWeekNum), \(prevWeekYear)"
+            let prevLabel: String
+            switch language {
+            case .chinese:  prevLabel = "\(prevWeekYear)年第\(prevWeekNum)周"
+            case .japanese: prevLabel = "\(prevWeekYear)年第\(prevWeekNum)週"
+            case .korean:   prevLabel = "\(prevWeekYear)년 \(prevWeekNum)주차"
+            case .spanish:  prevLabel = "Semana \(prevWeekNum), \(prevWeekYear)"
+            case .english:  prevLabel = "Week \(prevWeekNum), \(prevWeekYear)"
+            }
             let prevResolved = periodSummary(type:0, label:prevLabel)?.resolvedChallenges ?? []
             let prevChallenges = allChallengeKeywords(for: prevWeekDates)
             let prevUnresolved = prevChallenges.filter { !prevResolved.contains($0) }
@@ -1005,7 +1060,14 @@ class AppStore: ObservableObject {
             // 减去本周已解决的（在周总结里勾掉的）
             let thisWeekYear = cal.component(.year, from: dates.last ?? today)
             let thisWeekNum = cal.component(.weekOfYear, from: dates.last ?? today)
-            let thisWeekLabel = language == .chinese ? "\(thisWeekYear)年第\(thisWeekNum)周" : "Week \(thisWeekNum), \(thisWeekYear)"
+            let thisWeekLabel: String
+            switch language {
+            case .chinese:  thisWeekLabel = "\(thisWeekYear)年第\(thisWeekNum)周"
+            case .japanese: thisWeekLabel = "\(thisWeekYear)年第\(thisWeekNum)週"
+            case .korean:   thisWeekLabel = "\(thisWeekYear)년 \(thisWeekNum)주차"
+            case .spanish:  thisWeekLabel = "Semana \(thisWeekNum), \(thisWeekYear)"
+            case .english:  thisWeekLabel = "Week \(thisWeekNum), \(thisWeekYear)"
+            }
             let thisResolved = periodSummary(type:0, label:thisWeekLabel)?.resolvedChallenges ?? []
             if !includeResolved { result = result.filter { !thisResolved.contains($0) } }
             return result
@@ -1550,69 +1612,176 @@ class AppStore: ObservableObject {
 
     func generateSummary(range: Int) -> String {
         let dates: [Date]
-        let periodName: String
         let cal = Calendar.current
         switch range {
-        case 0:
-            dates = weekDates(); periodName = t("本周","This Week")
-        case 1:
-            dates = monthDates(); periodName = t("本月","This Month")
+        case 0:  dates = weekDates()
+        case 1:  dates = monthDates()
         default:
             let year = cal.component(.year, from:today); var all:[Date]=[]
             for m in 1...12 {
                 var c=DateComponents(); c.year=year; c.month=m; c.day=1
                 if let f=cal.date(from:c) {
-                    all += cal.range(of:.day,in:.month,for:f)!.compactMap{cal.date(byAdding:.day,value:$0-1,to:f)}.filter{$0<=today}
+                    all += cal.range(of:.day,in:.month,for:f)!
+                        .compactMap{cal.date(byAdding:.day,value:$0-1,to:f)}
+                        .filter{$0<=today}
                 }
             }
-            dates = all; periodName = t("今年","This Year")
+            dates = all
         }
-        let avg = avgCompletion(for:dates)
-        let reviews = dates.compactMap { review(for:$0) }.filter(\.isSubmitted)
-        let avgRating = reviews.isEmpty ? 0.0 : Double(reviews.map(\.rating).reduce(0,+)) / Double(reviews.count)
-        let streak = goals.map { currentStreak(for:$0) }.max() ?? 0
+
+        let avg        = avgCompletion(for:dates)
+        let reviews    = dates.compactMap { review(for:$0) }.filter(\.isSubmitted)
+        let avgRating  = reviews.isEmpty ? 0.0 : Double(reviews.map(\.rating).reduce(0,+)) / Double(reviews.count)
+        let streak     = goals.map { currentStreak(for:$0) }.max() ?? 0
         let activeDays = dates.filter { completionRate(for:$0) > 0 }.count
+        let pct        = Int(avg * 100)
+
+        // Keyword sentiment (language-aware)
         let allText = reviews.flatMap { [$0.journalGains, $0.journalChallenges, $0.feedbackNote] }.joined(separator:" ")
-        let posWords_zh = ["进步","完成","坚持","突破","专注","高效","充实","开心","满意","成长","收获"]
-        let posWords_en = ["progress","completed","consistent","focused","efficient","happy","satisfied","growth","achieved"]
-        let chalWords_zh = ["困难","疲惫","拖延","焦虑","压力","没动力","状态差"]
-        let chalWords_en = ["tired","difficult","delayed","anxious","stress","unmotivated","struggled"]
-        let posHits = language == .chinese ? posWords_zh.filter{allText.contains($0)} : posWords_en.filter{allText.lowercased().contains($0)}
-        let chalHits = language == .chinese ? chalWords_zh.filter{allText.contains($0)} : chalWords_en.filter{allText.lowercased().contains($0)}
+        let posWords: [String]
+        let chalWords: [String]
+        switch language {
+        case .chinese:  posWords = ["进步","完成","坚持","突破","专注","高效","充实","开心","满意","成长","收获"]
+                        chalWords = ["困难","疲惫","拖延","焦虑","压力","没动力","状态差"]
+        case .japanese: posWords = ["進歩","達成","継続","突破","集中","効率","充実","嬉しい","満足","成長","収穫"]
+                        chalWords = ["困難","疲れた","遅延","不安","プレッシャー","やる気","調子"]
+        case .korean:   posWords = ["진보","완성","지속","돌파","집중","효율","충실","기쁨","만족","성장","수확"]
+                        chalWords = ["어려움","피곤","지연","불안","스트레스","의욕","상태"]
+        case .spanish:  posWords = ["progreso","completé","constancia","logro","enfoque","eficiencia","satisfecho","crecimiento"]
+                        chalWords = ["difícil","cansado","procrastiné","ansiedad","estrés","desmotivado"]
+        case .english:  posWords = ["progress","completed","consistent","focused","efficient","happy","satisfied","growth","achieved"]
+                        chalWords = ["tired","difficult","delayed","anxious","stress","unmotivated","struggled"]
+        }
+        let posHits  = posWords.filter { allText.lowercased().contains($0.lowercased()) }
+        let chalHits = chalWords.filter { allText.lowercased().contains($0.lowercased()) }
         let activeGoals = goals.filter { g in dates.contains { completionRate(for:$0)>0 && !tasks(for:$0,goal:g).isEmpty }}
 
-        var lines:[String]=[]
-        if language == .chinese {
-            if avg >= 0.8 { lines.append("🏆 \(periodName)完成率 \(Int(avg*100))%，做得非常出色！每一个打卡的任务都是对自己的承诺。") }
-            else if avg >= 0.6 { lines.append("✨ \(periodName)完成率 \(Int(avg*100))%，节奏不错。坚持本身就是一种能力，你正在培养它。") }
-            else if avg >= 0.3 { lines.append("💪 \(periodName)完成率 \(Int(avg*100))%。哪怕只完成一部分，也比什么都不做强——你已经在路上了。") }
-            else if activeDays > 0 { lines.append("🌱 \(periodName)有 \(activeDays) 天留下了记录。每次打开这个应用都是对自己的关注，这很重要。") }
-            else { lines.append("🌙 \(periodName)还没有记录，没关系——新的开始随时可以。") }
-            if !activeGoals.isEmpty { lines.append("📌 推进中：\(activeGoals.prefix(3).map(\.title).joined(separator:"、"))") }
-            if !posHits.isEmpty { lines.append("🔑 你的记录里出现了：\(posHits.prefix(4).joined(separator:" · "))") }
-            if !chalHits.isEmpty { lines.append("🤝 也有挑战：\(chalHits.prefix(3).joined(separator:"、"))。承认困难是清醒的表现。") }
-            if avgRating >= 4 { lines.append("😊 整体心情积极，状态很好！") }
-            else if avgRating >= 3 { lines.append("🙂 心情整体稳定，继续保持。") }
-            else if avgRating > 0 { lines.append("🌤 有些低落的时候——照顾好自己，状态是一切的基础。") }
-            if streak >= 14 { lines.append("🔥 连续坚持 \(streak) 天！这种韧性会慢慢改变你。") }
-            else if streak >= 7 { lines.append("🔥 连续 \(streak) 天！一周的坚持已经不简单了。") }
-            else if streak >= 3 { lines.append("⚡ 连续 \(streak) 天，势头来了！") }
-        } else {
-            if avg >= 0.8 { lines.append("🏆 \(Int(avg*100))% completion \(periodName)! Every checked task is a promise kept to yourself.") }
-            else if avg >= 0.6 { lines.append("✨ \(Int(avg*100))% \(periodName). Good rhythm — consistency is a skill you're building.") }
-            else if avg >= 0.3 { lines.append("💪 \(Int(avg*100))% \(periodName). Partial progress still counts — you're on the move.") }
-            else if activeDays > 0 { lines.append("🌱 \(activeDays) active days \(periodName). Every check-in is an act of self-awareness.") }
-            else { lines.append("🌙 No records yet \(periodName) — a fresh start is always one task away.") }
-            if !activeGoals.isEmpty { lines.append("📌 In motion: \(activeGoals.prefix(3).map(\.title).joined(separator:", "))") }
-            if !posHits.isEmpty { lines.append("🔑 Keywords from your notes: \(posHits.prefix(4).joined(separator:" · "))") }
-            if !chalHits.isEmpty { lines.append("🤝 Challenges noted: \(chalHits.prefix(3).joined(separator:", ")). Naming them is the first step.") }
-            if avgRating >= 4 { lines.append("😊 Mood has been mostly positive — great sign!") }
-            else if avgRating >= 3 { lines.append("🙂 Mood steady. Keep that foundation strong.") }
-            else if avgRating > 0 { lines.append("🌤 Some tough days — rest is part of the process.") }
-            if streak >= 14 { lines.append("🔥 \(streak)-day streak! That consistency transforms habits.") }
-            else if streak >= 7 { lines.append("🔥 \(streak) days in a row — a full week of showing up!") }
-            else if streak >= 3 { lines.append("⚡ \(streak)-day run — momentum is building!") }
+        var lines: [String] = []
+
+        // ── Completion line ──
+        switch language {
+        case .chinese:
+            if pct >= 80      { lines.append("🏆 完成率 \(pct)%，做得非常出色！") }
+            else if pct >= 60 { lines.append("✨ 完成率 \(pct)%，节奏不错。") }
+            else if pct >= 30 { lines.append("💪 完成率 \(pct)%，哪怕一部分也在前进。") }
+            else if activeDays > 0 { lines.append("🌱 有 \(activeDays) 天留下了记录。") }
+            else              { lines.append("🌙 还没有记录——新的开始随时可以。") }
+        case .japanese:
+            if pct >= 80      { lines.append("🏆 完了率 \(pct)%、素晴らしい！") }
+            else if pct >= 60 { lines.append("✨ 完了率 \(pct)%、安定したペース。") }
+            else if pct >= 30 { lines.append("💪 完了率 \(pct)%、一歩ずつ前進中。") }
+            else if activeDays > 0 { lines.append("🌱 \(activeDays)日間記録あり。") }
+            else              { lines.append("🌙 まだ記録なし——いつでも始められる。") }
+        case .korean:
+            if pct >= 80      { lines.append("🏆 완료율 \(pct)%, 정말 훌륭해요!") }
+            else if pct >= 60 { lines.append("✨ 완료율 \(pct)%, 꾸준한 페이스.") }
+            else if pct >= 30 { lines.append("💪 완료율 \(pct)%, 조금씩 앞으로.") }
+            else if activeDays > 0 { lines.append("🌱 \(activeDays)일 기록 남김.") }
+            else              { lines.append("🌙 기록 없음——언제든 시작 가능.") }
+        case .spanish:
+            if pct >= 80      { lines.append("🏆 Completado \(pct)%, ¡excelente!") }
+            else if pct >= 60 { lines.append("✨ Completado \(pct)%, buen ritmo.") }
+            else if pct >= 30 { lines.append("💪 Completado \(pct)%, avanzando.") }
+            else if activeDays > 0 { lines.append("🌱 \(activeDays) días con registro.") }
+            else              { lines.append("🌙 Sin registros aún — puedes empezar hoy.") }
+        case .english:
+            if pct >= 80      { lines.append("🏆 \(pct)% completion — excellent!") }
+            else if pct >= 60 { lines.append("✨ \(pct)% completion — good rhythm.") }
+            else if pct >= 30 { lines.append("💪 \(pct)% completion — making progress.") }
+            else if activeDays > 0 { lines.append("🌱 \(activeDays) active days recorded.") }
+            else              { lines.append("🌙 No records yet — a fresh start is always ready.") }
         }
+
+        // ── Active goals ──
+        if !activeGoals.isEmpty {
+            let titles = activeGoals.prefix(3).map(\.title)
+            switch language {
+            case .chinese:  lines.append("📌 推进中：\(titles.joined(separator:"、"))")
+            case .japanese: lines.append("📌 進行中：\(titles.joined(separator:"、"))")
+            case .korean:   lines.append("📌 진행 중：\(titles.joined(separator:", "))")
+            case .spanish:  lines.append("📌 En marcha：\(titles.joined(separator:", "))")
+            case .english:  lines.append("📌 In motion: \(titles.joined(separator:", "))")
+            }
+        }
+
+        // ── Positive keywords ──
+        if !posHits.isEmpty {
+            let kws = posHits.prefix(4)
+            switch language {
+            case .chinese:  lines.append("🔑 你的记录里出现了：\(kws.joined(separator:" · "))")
+            case .japanese: lines.append("🔑 記録のキーワード：\(kws.joined(separator:" · "))")
+            case .korean:   lines.append("🔑 기록 키워드：\(kws.joined(separator:" · "))")
+            case .spanish:  lines.append("🔑 Palabras en tus notas: \(kws.joined(separator:" · "))")
+            case .english:  lines.append("🔑 Keywords from notes: \(kws.joined(separator:" · "))")
+            }
+        }
+
+        // ── Challenge keywords ──
+        if !chalHits.isEmpty {
+            let kws = chalHits.prefix(3)
+            switch language {
+            case .chinese:  lines.append("🤝 也有挑战：\(kws.joined(separator:"、"))。承认困难是清醒。")
+            case .japanese: lines.append("🤝 課題も：\(kws.joined(separator:"、"))。認めることが第一歩。")
+            case .korean:   lines.append("🤝 어려움도：\(kws.joined(separator:", "))。인정이 첫걸음.")
+            case .spanish:  lines.append("🤝 Desafíos：\(kws.joined(separator:", ")). Reconocerlos es lo primero.")
+            case .english:  lines.append("🤝 Challenges noted: \(kws.joined(separator:", ")). Naming them is step one.")
+            }
+        }
+
+        // ── Mood ──
+        if avgRating >= 4 {
+            switch language {
+            case .chinese:  lines.append("😊 整体心情积极，状态很好！")
+            case .japanese: lines.append("😊 全体的に気分良好！")
+            case .korean:   lines.append("😊 전반적으로 기분이 좋아요!")
+            case .spanish:  lines.append("😊 ¡Ánimo mayormente positivo!")
+            case .english:  lines.append("😊 Mood has been mostly positive — great sign!")
+            }
+        } else if avgRating >= 3 {
+            switch language {
+            case .chinese:  lines.append("🙂 心情整体稳定，继续保持。")
+            case .japanese: lines.append("🙂 気分は安定、この調子で。")
+            case .korean:   lines.append("🙂 기분은 전반적으로 안정적.")
+            case .spanish:  lines.append("🙂 Ánimo estable, sigue así.")
+            case .english:  lines.append("🙂 Mood steady. Keep that foundation strong.")
+            }
+        } else if avgRating > 0 {
+            switch language {
+            case .chinese:  lines.append("🌤 有些低落的时候——照顾好自己。")
+            case .japanese: lines.append("🌤 落ち込む日も——自分を大切に。")
+            case .korean:   lines.append("🌤 힘든 날도 있었어요——자신을 챙겨요.")
+            case .spanish:  lines.append("🌤 Días difíciles también — cuídate.")
+            case .english:  lines.append("🌤 Some tough days — rest is part of the process.")
+            }
+        }
+
+        // ── Streak ──
+        if streak >= 14 {
+            switch language {
+            case .chinese:  lines.append("🔥 连续坚持 \(streak) 天！这种韧性会改变你。")
+            case .japanese: lines.append("🔥 \(streak)日連続！その継続力が変化を生む。")
+            case .korean:   lines.append("🔥 \(streak)일 연속! 그 꾸준함이 변화를 만들어요.")
+            case .spanish:  lines.append("🔥 ¡\(streak) días seguidos! Esa tenacidad te cambia.")
+            case .english:  lines.append("🔥 \(streak)-day streak! That consistency transforms habits.")
+            }
+        } else if streak >= 7 {
+            switch language {
+            case .chinese:  lines.append("🔥 连续 \(streak) 天，一整周的坚持！")
+            case .japanese: lines.append("🔥 \(streak)日連続、まる1週間！")
+            case .korean:   lines.append("🔥 \(streak)일 연속, 일주일 달성!")
+            case .spanish:  lines.append("🔥 ¡\(streak) días seguidos — toda una semana!")
+            case .english:  lines.append("🔥 \(streak) days in a row — a full week!")
+            }
+        } else if streak >= 3 {
+            switch language {
+            case .chinese:  lines.append("⚡ 连续 \(streak) 天，势头来了！")
+            case .japanese: lines.append("⚡ \(streak)日連続、勢い出てきた！")
+            case .korean:   lines.append("⚡ \(streak)일 연속, 탄력 붙었어요!")
+            case .spanish:  lines.append("⚡ \(streak) días — ¡el impulso llega!")
+            case .english:  lines.append("⚡ \(streak)-day run — momentum is building!")
+            }
+        }
+
         return lines.joined(separator:"\n")
     }
 
@@ -1652,7 +1821,18 @@ class AppStore: ObservableObject {
                 .components(separatedBy:CharacterSet.whitespaces).filter{$0.count>=2}
             : stopWordsEN.reduce(lower){ r,w in r.replacingOccurrences(of:" \(w) ",with:" ") }
                 .components(separatedBy:" ").filter{$0.count>=3}
-        let coreName = coreWords.first ?? (isCN ? "目标" : "goal")
+        let coreName: String
+        if let first = coreWords.first {
+            coreName = first
+        } else {
+            switch language {
+            case .chinese: coreName = "目标"
+            case .japanese: coreName = "目標"
+            case .korean: coreName = "목표"
+            case .spanish: coreName = "meta"
+            case .english: coreName = "goal"
+            }
+        }
 
         let templatesCN = [
             "今日\(coreName)打卡",
@@ -1668,7 +1848,35 @@ class AppStore: ObservableObject {
             "Review \(coreName) motivation",
             "\(coreName) deep work",
         ]
-        let templates = (isCN ? templatesCN : templatesEN).filter { !existing.contains($0) }
+        let templatesJA = [
+            "今日\(coreName)チェック",
+            "\(coreName)に25分集中",
+            "\(coreName)の進捗を記録",
+            "\(coreName)の動機を確認",
+            "\(coreName)の重点突破",
+        ]
+        let templatesKO = [
+            "오늘 \(coreName) 체크",
+            "\(coreName)에 25분 집중",
+            "\(coreName) 진행 기록",
+            "\(coreName) 동기 확인",
+            "\(coreName) 핵심 돌파",
+        ]
+        let templatesES = [
+            "Check-in diario \(coreName)",
+            "Enfócate 25min en \(coreName)",
+            "Registra el progreso de \(coreName)",
+            "Revisa motivación de \(coreName)",
+            "Trabajo profundo en \(coreName)",
+        ]
+        let templates: [String]
+        switch language {
+        case .chinese:  templates = templatesCN.filter { !existing.contains($0) }
+        case .japanese: templates = templatesJA.filter { !existing.contains($0) }
+        case .korean:   templates = templatesKO.filter { !existing.contains($0) }
+        case .spanish:  templates = templatesES.filter { !existing.contains($0) }
+        case .english:  templates = templatesEN.filter { !existing.contains($0) }
+        }
 
         // ══════════════════════════════════════════════════════
         // A：关键词词库（40个池，覆盖更多目标类型）
