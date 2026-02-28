@@ -140,28 +140,85 @@ struct GoalsView: View {
         }
     }
 
+    /// How long the drag has been active — drives the card→pill morph animation
+    @State private var dragMorphProgress: CGFloat = 0
+    @State private var dragMorphTimer: Timer? = nil
+
+    func startDragMorph() {
+        dragMorphProgress = 0
+        dragMorphTimer?.invalidate()
+        // Animate from 0→1 over 0.38s (card morphs to pill)
+        let start = Date()
+        let duration: Double = 0.38
+        dragMorphTimer = Timer.scheduledTimer(withTimeInterval:1/60.0, repeats:true) { t in
+            let elapsed = Date().timeIntervalSince(start)
+            let p = min(1, elapsed / duration)
+            dragMorphProgress = CGFloat(p)
+            if p >= 1 { t.invalidate(); dragMorphTimer = nil }
+        }
+    }
+    func stopDragMorph() {
+        dragMorphTimer?.invalidate(); dragMorphTimer = nil
+        dragMorphProgress = 0
+    }
+
     @ViewBuilder var floatingGoalCard: some View {
         if let gid=draggingGoalId, let goal=store.goals.first(where:{$0.id==gid}), goalDragPos != .zero {
             GeometryReader { geo in
-                HStack(spacing:6){
-                    Circle().fill(goal.color).frame(width:7,height:7)
-                    Text(goal.title).font(.system(size:12,weight:.semibold)).foregroundColor(AppTheme.textPrimary).lineLimit(1)
-                    Image(systemName:"calendar.badge.clock").font(.system(size:10)).foregroundColor(AppTheme.accent)
-                }
-                .padding(.horizontal,10).padding(.vertical,7)
-                .background(AppTheme.bg2)
-                .cornerRadius(10)
-                .overlay(RoundedRectangle(cornerRadius:10).stroke(goal.color.opacity(0.6),lineWidth:1.5))
-                .shadow(color:goal.color.opacity(0.4),radius:12,y:5)
-                .fixedSize()
-                .position(
-                    x: goalDragPos.x - geo.frame(in:.global).minX,
-                    y: goalDragPos.y - geo.frame(in:.global).minY - 28
-                )
+                dragPill(goal:goal, pos:goalDragPos, containerFrame:geo.frame(in:.global))
             }
             .allowsHitTesting(false)
             .zIndex(999)
         }
+    }
+
+    /// Extracted to help Swift type-check; avoids opacity-chain ambiguity entirely
+    @ViewBuilder func dragPill(goal:Goal, pos:CGPoint, containerFrame:CGRect) -> some View {
+        let t: CGFloat = dragMorphProgress
+        let hPad:      CGFloat = 12 - t * 2          // 12→10
+        let vPad:      CGFloat = 9  - t * 4          // 9→5
+        let corner:    CGFloat = 12 + t * 8          // 12→20
+        let titleSize: CGFloat = 13 - t              // 13→12
+        let shadowR:   CGFloat = 16 - t * 6          // 16→10
+        let shadowY:   CGFloat = 6  + t * 2          // 6→8
+        // Opacity baked into the Color itself — no chained .opacity() on shapes
+        let bgAlpha: CGFloat   = 0.92 - t * 0.22
+        let strokeAlpha: CGFloat = 0.35 + t * 0.05
+
+        HStack(spacing:5) {
+            Circle().fill(goal.color).frame(width:7, height:7)
+            Text(goal.title)
+                .font(.system(size:titleSize, weight:.semibold))
+                .foregroundColor(AppTheme.textPrimary.opacity(0.82))
+                .lineLimit(1)
+            if t < 0.6 {
+                Image(systemName:"calendar.badge.clock")
+                    .font(.system(size:10))
+                    .foregroundColor(AppTheme.accent.opacity(Double(1 - t/0.6)))
+            }
+        }
+        .padding(.horizontal, hPad)
+        .padding(.vertical, vPad)
+        .background(
+            ZStack {
+                // Material layer
+                RoundedRectangle(cornerRadius:corner).fill(.ultraThinMaterial)
+                // Tinted bg — opacity baked into Color, not chained on Shape
+                RoundedRectangle(cornerRadius:corner)
+                    .fill(AppTheme.bg1.opacity(Double(bgAlpha)))
+            }
+        )
+        .clipShape(RoundedRectangle(cornerRadius:corner))
+        .overlay(
+            RoundedRectangle(cornerRadius:corner)
+                .strokeBorder(goal.color.opacity(Double(strokeAlpha)), lineWidth:1)
+        )
+        .shadow(color:goal.color.opacity(0.28), radius:shadowR, x:0, y:shadowY)
+        .fixedSize()
+        .position(
+            x: pos.x - containerFrame.minX,
+            y: pos.y - containerFrame.minY - 32
+        )
     }
 
     @State private var goalsScrollProxy: ScrollViewProxy? = nil
@@ -195,48 +252,98 @@ struct GoalsView: View {
 
     // 日历全高约 280，最小收起高度（只留末2行+星期头）约 100
 
+    @State private var calendarCollapsed = false
+
     @ViewBuilder var goalsMainContent: some View {
-        ZStack(alignment:.top) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing:0) {
-                        Color.clear.frame(height:1).id("goals_top")
-                        // ── 月历区（随内容滚动，不固定）──
-                        VStack(spacing:0) {
-                            MonthYearPicker(currentMonth:$currentMonth)
-                                .padding(.horizontal).padding(.top,8).padding(.bottom,4)
-                            CalendarGrid(
-                                currentMonth:currentMonth, selectedDate:$selectedDate,
-                                selectedGoalId:selectedGoalId, store:store,
-                                draggingGoalId:draggingGoalId,
-                                onDropGoal:{ id,date in
-                                    let todayStart = Calendar.current.startOfDay(for:store.today)
-                                    let target = Calendar.current.startOfDay(for:date)
-                                    if target >= todayStart { store.setGoalDeadline(id,to:date) }
-                                    monthFlipTimer?.invalidate(); monthFlipTimer=nil
-                                    autoScrollTimer?.invalidate(); autoScrollTimer=nil
-                                    draggingGoalId=nil; isDragging=false; goalDragPos = .zero
-                                }
-                            )
-                            .padding(.horizontal,12).padding(.top,2).padding(.bottom,8)
-                            .background(GeometryReader{ cGeo in
-                                Color.clear.onAppear{ calendarFrame=cGeo.frame(in:.global) }
-                            })
-                            if isDragging {
-                                HStack(spacing:6){
-                                    Image(systemName:"info.circle").font(.caption2)
-                                    Text(store.t("拖到日期 → 设为截止日","Drag to date → set deadline"))
-                                        .font(.caption2)
-                                }.foregroundColor(AppTheme.accent).padding(.vertical,3).transition(.opacity)
-                            }
+        VStack(spacing:0) {
+            // ── 日历区：固定顶部，不随列表滚动 ─────────────
+            VStack(spacing:0) {
+                // 月份导航 + 收起按钮
+                HStack(alignment:.center) {
+                    MonthYearPicker(currentMonth:$currentMonth)
+                    Spacer()
+                    Button(action:{
+                        withAnimation(.spring(response:0.3, dampingFraction:0.8)){
+                            calendarCollapsed.toggle()
                         }
-                        Divider().background(AppTheme.border0).padding(.horizontal,16)
-                        goalsListSection
+                    }) {
+                        Image(systemName: calendarCollapsed ? "chevron.down" : "chevron.up")
+                            .font(.system(size:12, weight:.medium))
+                            .foregroundColor(AppTheme.textTertiary)
+                            .frame(width:32, height:32)
+                            .background(AppTheme.bg2)
+                            .clipShape(Circle())
                     }
                 }
-                .onAppear { goalsScrollProxy = proxy }
+                .padding(.horizontal,16).padding(.top,8).padding(.bottom,2)
+
+                if !calendarCollapsed {
+                    CalendarGrid(
+                        currentMonth:currentMonth, selectedDate:$selectedDate,
+                        selectedGoalId:selectedGoalId, store:store,
+                        draggingGoalId:draggingGoalId,
+                        onDropGoal:{ id,date in
+                            let todayStart = Calendar.current.startOfDay(for:store.today)
+                            let target = Calendar.current.startOfDay(for:date)
+                            if target >= todayStart { store.setGoalDeadline(id,to:date) }
+                            monthFlipTimer?.invalidate(); monthFlipTimer=nil
+                            autoScrollTimer?.invalidate(); autoScrollTimer=nil
+                            stopDragMorph(); draggingGoalId=nil; isDragging=false; goalDragPos = .zero
+                        },
+                        dragScreenPos: goalDragPos
+                    )
+                    .padding(.horizontal,12).padding(.top,2).padding(.bottom,6)
+                    .background(GeometryReader{ cGeo in
+                        Color.clear.onAppear{ calendarFrame=cGeo.frame(in:.global) }
+                    })
+                    .transition(.opacity.combined(with:.move(edge:.top)))
+
+                    if isDragging {
+                        HStack(spacing:5){
+                            Image(systemName:"calendar.badge.checkmark").font(.caption2)
+                            Text(store.t("拖到日期可设为截止日","Drag to a date to set deadline"))
+                                .font(.caption2)
+                        }
+                        .foregroundColor(AppTheme.accent)
+                        .padding(.bottom,5)
+                        .transition(.opacity)
+                    }
+                }
             }
-            floatingGoalCard.zIndex(999)
+            // 左右滑动切换月份（仅在日历展开时生效）
+            .gesture(
+                calendarCollapsed ? nil :
+                DragGesture(minimumDistance:44, coordinateSpace:.local)
+                    .onEnded { v in
+                        guard abs(v.translation.width) > abs(v.translation.height) * 1.5 else { return }
+                        let cal = Calendar.current
+                        withAnimation(.spring(response:0.28)){
+                            if v.translation.width < 0 {
+                                if let n = cal.date(byAdding:.month,value:1,to:currentMonth){ currentMonth=n }
+                            } else {
+                                if let p = cal.date(byAdding:.month,value:-1,to:currentMonth){ currentMonth=p }
+                            }
+                        }
+                    }
+            )
+            .background(AppTheme.bg1)
+            .shadow(color:.black.opacity(0.06), radius:4, x:0, y:2)
+
+            Divider().background(AppTheme.border0)
+
+            // ── 目标列表：独立滚动区 ─────────────────────────
+            ZStack(alignment:.top) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(spacing:0) {
+                            Color.clear.frame(height:1).id("goals_top")
+                            goalsListSection
+                        }
+                    }
+                    .onAppear { goalsScrollProxy = proxy }
+                }
+                floatingGoalCard.zIndex(999)
+            }
         }
     }
 
@@ -398,7 +505,7 @@ struct GoalsView: View {
                         onDoubleTap:{ editingGoal=goal },
                         // 左侧竖条拖拽 → 改截止日（日历翻页联动）
                         onDragChanged:{ pos in
-                            if draggingGoalId==nil { withAnimation(.spring(response:0.2)){ draggingGoalId=goal.id; isDragging=true } }
+                            if draggingGoalId==nil { withAnimation(.spring(response:0.2)){ draggingGoalId=goal.id; isDragging=true }; startDragMorph() }
                             goalDragPos=pos
                             checkEdgeFlip(pos:pos)
                             checkVerticalAutoScroll(pos:pos)
@@ -407,7 +514,7 @@ struct GoalsView: View {
                             monthFlipTimer?.invalidate(); monthFlipTimer=nil
                             autoScrollTimer?.invalidate(); autoScrollTimer=nil
                             DispatchQueue.main.asyncAfter(deadline:.now()+0.1){
-                                if draggingGoalId != nil { withAnimation(.spring(response:0.25)){ draggingGoalId=nil; isDragging=false; goalDragPos = .zero } }
+                                if draggingGoalId != nil { stopDragMorph(); withAnimation(.spring(response:0.25)){ draggingGoalId=nil; isDragging=false; goalDragPos = .zero } }
                             }
                         },
                         onShare:{ pro.requirePro{ sharingGoal=goal } },
@@ -599,6 +706,8 @@ struct CalendarGrid: View {
     let currentMonth:Date;@Binding var selectedDate:Date?
     let selectedGoalId:UUID?;let store:AppStore
     let draggingGoalId:UUID?;let onDropGoal:(UUID,Date)->Void
+    /// Screen-space position of the drag label (for proximity animation)
+    var dragScreenPos: CGPoint = .zero
     @EnvironmentObject var storeEnv:AppStore
     let cols=Array(repeating:GridItem(.flexible(),spacing:2),count:7)
     var weekdays:[String]{ storeEnv.language == .chinese ? ["日","一","二","三","四","五","六"]:["Su","Mo","Tu","We","Th","Fr","Sa"] }
@@ -612,17 +721,11 @@ struct CalendarGrid: View {
         return r
     }
     func dotColor(for date:Date)->Color?{
-        // Only count goals with showCalendarDot enabled
-        let visibleGoals = store.goals(for:date).filter { $0.showCalendarDot }
-        // If a specific goal is selected, dim based on whether it covers this date
-        if let gid=selectedGoalId {
-            if let goal=store.goals.first(where:{$0.id==gid}) {
-                if goal.covers(date) { return goal.color }   // bright: has this goal
-                else { return nil }                           // dark: no dot (cell will be dimmed)
-            }
-        }
-        guard !visibleGoals.isEmpty else { return nil }
-        return Color.dotColor(count:visibleGoals.count)
+        // No selected goal → no dot at all (dots only appear when a goal is selected)
+        guard let gid=selectedGoalId,
+              let goal=store.goals.first(where:{$0.id==gid})
+        else { return nil }
+        return goal.covers(date) ? goal.color : nil
     }
     var body: some View {
         VStack(spacing:4){
@@ -636,17 +739,34 @@ struct CalendarGrid: View {
                             }
                             return true
                         }()
-                        CalendarDayCell(date:date,
-                            isSelected:selectedDate.map{Calendar.current.isDate($0,inSameDayAs:date)} ?? false,
-                            isToday:Calendar.current.isDate(date, inSameDayAs:store.today),
-                            dotColor:dotColor(for:date),
-                            isDropTarget:draggingGoalId != nil,
-                            isDimmed: selectedGoalId != nil && !hasSelectedGoal,
-                            onTap:{
-                                if let gid=draggingGoalId { onDropGoal(gid,date) }
-                                else { selectedDate=date }
-                            })
-                    } else { Color.clear.frame(height:44) }
+                        GeometryReader { cellGeo in
+                            let cellCenter = CGPoint(
+                                x: cellGeo.frame(in:.global).midX,
+                                y: cellGeo.frame(in:.global).midY
+                            )
+                            let dragDist: CGFloat = draggingGoalId != nil && dragScreenPos != .zero
+                                ? hypot(dragScreenPos.x - cellCenter.x, dragScreenPos.y - cellCenter.y)
+                                : .infinity
+                            // proximity scale: max +12% at 0px, fades to 0% beyond 110px
+                            let proximity: CGFloat = draggingGoalId != nil
+                                ? max(0, 1 - dragDist/110)
+                                : 0
+                            let scaleBoost: CGFloat = 1.0 + proximity * 0.12
+                            CalendarDayCell(date:date,
+                                isSelected:selectedDate.map{Calendar.current.isDate($0,inSameDayAs:date)} ?? false,
+                                isToday:Calendar.current.isDate(date, inSameDayAs:store.today),
+                                dotColor:dotColor(for:date),
+                                isDragging: draggingGoalId != nil,
+                                isDimmed: selectedGoalId != nil && !hasSelectedGoal,
+                                onTap:{
+                                    if let gid=draggingGoalId { onDropGoal(gid,date) }
+                                    else { selectedDate=date }
+                                })
+                            .scaleEffect(scaleBoost)
+                            .animation(.spring(response:0.35, dampingFraction:0.7), value:scaleBoost)
+                        }
+                        .frame(height:52)
+                    } else { Color.clear.frame(height:52) }
                 }
             }
         }
@@ -654,56 +774,77 @@ struct CalendarGrid: View {
 }
 
 struct CalendarDayCell: View {
-    let date:Date;let isSelected:Bool;let isToday:Bool;let dotColor:Color?;let isDropTarget:Bool
-    var isDimmed:Bool = false  // 选中某目标时，不含该目标的日期变暗
+    let date:Date;let isSelected:Bool;let isToday:Bool;let dotColor:Color?
+    /// true when a goal is being dragged (replaces isDropTarget)
+    var isDragging:Bool = false
+    var isDimmed:Bool = false
     let onTap:()->Void
-    var day:Int{Calendar.current.component(.day,from:date)}
-    var isPast:Bool{Calendar.current.startOfDay(for:date) < Calendar.current.startOfDay(for:Date())}
-    var effectiveDropTarget:Bool{ isDropTarget && !isPast }
-    var cellOpacity: Double {
-        if isDropTarget && isPast { return 0.3 }
-        if isDimmed { return 0.25 }
-        return 1.0
-    }
+    var day:Int { Calendar.current.component(.day,from:date) }
+    var isPast:Bool { Calendar.current.startOfDay(for:date) < Calendar.current.startOfDay(for:Date()) }
+    var isDroppable:Bool { isDragging && !isPast }  // today or future
+
     var body: some View {
         Button(action:{
-            if effectiveDropTarget || !isDropTarget { onTap() }
+            if isDroppable || !isDragging { onTap() }
         }){
             VStack(spacing:3){
-                Text("\(day)").font(.subheadline).fontWeight(isToday ? .bold:.regular)
+                Text("\(day)")
+                    .font(.system(size:15, weight: isToday ? .semibold : .regular))
                     .foregroundColor(
                         (isSelected && isToday) ? AppTheme.bg0 :
-                        isSelected ? AppTheme.accent :
-                        isToday ? AppTheme.accent :
-                        (isDropTarget && isPast) ? AppTheme.textTertiary.opacity(0.4) :
+                        isSelected            ? AppTheme.accent :
+                        isToday               ? AppTheme.accent :
+                        (isDragging && isPast) ? AppTheme.textTertiary.opacity(0.3) :
+                        (isDragging && !isPast) ? AppTheme.textPrimary :
                         AppTheme.textPrimary
                     )
-                    .frame(width:34,height:34)
+                    .frame(width:34, height:34)
                     .background(
-                        Circle().fill(
-                            isToday && isSelected ? AppTheme.accent :
-                            isSelected ? AppTheme.accent.opacity(0.25) :
-                            effectiveDropTarget ? AppTheme.accent.opacity(0.15) :
-                            Color.clear
-                        )
+                        ZStack {
+                            // Selection / today background
+                            Circle().fill(
+                                isToday && isSelected ? AppTheme.accent :
+                                isSelected            ? AppTheme.accent.opacity(0.22) :
+                                Color.clear
+                            )
+                            // Drag: future dates get a soft glow ring (no cheap circle overlay)
+                            if isDroppable && !isSelected && !isToday {
+                                Circle()
+                                    .fill(AppTheme.accent.opacity(0.09))
+                                    .blur(radius:2)
+                            }
+                        }
                     )
                     .overlay(
                         Group {
                             if isToday && !isSelected {
-                                Circle().stroke(AppTheme.accent.opacity(0.7),lineWidth:1.5)
-                            } else if effectiveDropTarget {
-                                Circle().stroke(AppTheme.accent.opacity(0.5),lineWidth:1.5)
+                                // Today: clean ring, always
+                                Circle().stroke(AppTheme.accent.opacity(0.65), lineWidth:1.5)
                             }
+                            // No stroke rings during drag — proximity scale does the job
                         }
                     )
-                // 光点：有目标时显示（亮），选中目标但不含时隐藏（已通过isDimmed处理）
-                Circle()
-                    .fill(dotColor != nil ? (isDimmed ? Color.clear : dotColor!) : Color.clear)
-                    .frame(width:5,height:5)
+                    // Subtle brightening for droppable dates
+                    .brightness(isDroppable && !isSelected ? 0.04 : 0)
+
+                // Dot: only when goal is selected (not during drag)
+                if !isDragging {
+                    Circle()
+                        .fill(dotColor != nil && !isDimmed ? dotColor! : Color.clear)
+                        .frame(width:4.5, height:4.5)
+                } else {
+                    Color.clear.frame(width:4.5, height:4.5)
+                }
             }
-            .opacity(cellOpacity)
-            .animation(.easeInOut(duration:0.2), value:isDimmed)
-        }.frame(maxWidth:.infinity).animation(.easeInOut(duration:0.15),value:effectiveDropTarget)
+            .opacity(
+                isDragging && isPast ? 0.28 :
+                isDimmed ? 0.22 : 1.0
+            )
+            .animation(.easeInOut(duration:0.18), value:isDimmed)
+            .animation(.easeInOut(duration:0.18), value:isDragging)
+        }
+        .frame(maxWidth:.infinity)
+        .disabled(isDragging && isPast)
     }
 }
 
@@ -1355,6 +1496,7 @@ struct TodayJournalCard: View {
     @State private var expanded = false
     @State private var showGainDetail = false
     @State private var showTomorrowDetail = false
+    @State private var showSmartSummary = false
 
     let emojis = ["😔","😐","🙂","😊","🔥"]
     let moodLabels_zh = ["不太好","一般","还行","不错","很棒"]
@@ -1447,10 +1589,13 @@ struct TodayJournalCard: View {
                         draft = toSubmit
                         isSubmitted = true
                         withAnimation(.spring(response:0.35)){ expanded = false }
+                        DispatchQueue.main.asyncAfter(deadline:.now()+0.4){
+                            showSmartSummary = true
+                        }
                     }) {
                         HStack(spacing:6) {
-                            Image(systemName: isSubmitted ? "arrow.clockwise.circle.fill" : "checkmark.circle.fill")
-                            Text(isSubmitted ? store.t("更新心得","Update Journal") : store.t("提交今日心得","Submit Journal"))
+                            Image(systemName: isSubmitted ? "arrow.clockwise.circle.fill" : "sparkles")
+                            Text(isSubmitted ? store.t("更新今日心得","Update Journal") : store.t("提交心得 · 激活总结","Submit & View Summary"))
                         }
                         .font(.subheadline).fontWeight(.medium)
                         .frame(maxWidth:.infinity).padding(.vertical,13)
@@ -1466,7 +1611,12 @@ struct TodayJournalCard: View {
         }
         .background(AppTheme.bg1).cornerRadius(16)
         .overlay(RoundedRectangle(cornerRadius:16).stroke(isSubmitted ? AppTheme.accent.opacity(0.25) : AppTheme.border0, lineWidth:1))
-        .onAppear { expanded = true }  // 默认展开
+        .onAppear { expanded = true }
+        .sheet(isPresented:$showSmartSummary) {
+            SmartSummarySheet(ctx: SummaryContext.forDay(store.today, store:store))
+                .environmentObject(store)
+                .environmentObject(pro)
+        }
     }
 }
 
@@ -3496,8 +3646,8 @@ struct YearChartPanel: View {
     bestIdx: Int?,
     worstIdx: Int?,
     selectedIdx: Binding<Int?>,
-    isToday: (Int)->Bool,
-    isFuture: (Int)->Bool
+    isToday: @escaping (Int)->Bool,
+    isFuture: @escaping (Int)->Bool
 ) -> some View {
     HStack(alignment:.bottom, spacing:5) {
         ForEach(data.indices, id:\.self) { i in
@@ -3607,6 +3757,20 @@ struct YearChartPanel: View {
 
 
 // ── 共用工具视图 ─────────────────────────────────────────
+@ViewBuilder func emptyPlaceholder(icon:String, msg:String) -> some View {
+    VStack(spacing:14) {
+        Image(systemName:icon)
+            .font(.system(size:36,weight:.ultraLight))
+            .foregroundColor(AppTheme.textTertiary.opacity(0.35))
+        Text(msg)
+            .font(.subheadline)
+            .foregroundColor(AppTheme.textTertiary)
+            .multilineTextAlignment(.center)
+    }
+    .frame(maxWidth:.infinity)
+    .padding(.vertical,20)
+}
+
 extension View {
     func cardStyle() -> some View {
         self.padding(16)
@@ -4617,8 +4781,9 @@ struct PeriodSummaryCard: View {
     @State private var draftGainDetail = ""
     @State private var draftChallengeDetail = ""
     @State private var draftNextDetail = ""
-    @State private var challengeTrackerOpen = false   // 困难追踪折叠
-    @State private var periodNoteKW: String? = nil     // 当前展开心得的 kw
+    @State private var challengeTrackerOpen = false
+    @State private var periodNoteKW: String? = nil
+    @State private var showSmartSummary = false
 
     let emojis = ["😔","😐","🙂","😊","🔥"]
     let moodTexts_zh = ["","不太好","一般","还行","不错","很棒"]
@@ -4711,6 +4876,15 @@ struct PeriodSummaryCard: View {
             store.removeTodayChallengeKeyword(kw)
         }
         editing = false
+        DispatchQueue.main.asyncAfter(deadline:.now()+0.35) { showSmartSummary = true }
+    }
+
+    var summaryCtx: SummaryContext {
+        switch range {
+        case 0: return .forWeek(label:periodLabel, dates:periodDates, store:store)
+        case 1: return .forMonth(label:periodLabel, dates:periodDates, store:store)
+        default: return .forYear(label:periodLabel, dates:periodDates, store:store)
+        }
     }
 
     // ── body 拆分成子函数，解决 Swift 类型推断超时 ──────────
@@ -4724,6 +4898,11 @@ struct PeriodSummaryCard: View {
         .padding(18).background(AppTheme.bg1).cornerRadius(18)
         .overlay(RoundedRectangle(cornerRadius:18).stroke(existing != nil ? AppTheme.accent.opacity(0.28) : AppTheme.border0,lineWidth:1))
         .shadow(color: AppTheme.accent.opacity(existing != nil ? 0.08 : 0), radius:12, x:0, y:4)
+        .sheet(isPresented:$showSmartSummary) {
+            SmartSummarySheet(ctx:summaryCtx)
+                .environmentObject(store)
+                .environmentObject(pro)
+        }
     }
 
     @ViewBuilder var headerSection: some View {
@@ -4832,13 +5011,15 @@ struct PeriodSummaryCard: View {
             Spacer()
             Button(action:startEditing) {
                 HStack(spacing:4) {
-                    Image(systemName:"pencil").font(.system(size:10))
-                    Text(store.t("编辑","Edit")).font(.system(size:11))
+                    Image(systemName:"arrow.clockwise.circle.fill")
+                        .font(.system(size:10, weight:.medium))
+                    Text(store.t("更新并激活智能总结","Update & Insight"))
+                        .font(.system(size:11, weight:.medium))
                 }
                 .foregroundColor(AppTheme.accent)
                 .padding(.horizontal,10).padding(.vertical,5)
-                .background(AppTheme.accent.opacity(0.08)).cornerRadius(8)
-                .overlay(RoundedRectangle(cornerRadius:8).stroke(AppTheme.accent.opacity(0.2),lineWidth:0.5))
+                .background(AppTheme.accent.opacity(0.1)).cornerRadius(8)
+                .overlay(RoundedRectangle(cornerRadius:8).stroke(AppTheme.accent.opacity(0.22),lineWidth:0.5))
             }
         }
     }
@@ -4876,10 +5057,14 @@ struct PeriodSummaryCard: View {
                 Button(store.t("取消","Cancel")){ editing=false }.font(.caption).foregroundColor(AppTheme.textTertiary)
                 Spacer()
                 Button(action:submit) {
-                    Text(store.t("提交总结","Submit"))
-                        .font(.caption).fontWeight(.semibold)
-                        .padding(.horizontal,16).padding(.vertical,7)
-                        .background(AppTheme.accent).cornerRadius(10).foregroundColor(AppTheme.bg0)
+                    HStack(spacing:5) {
+                        Image(systemName:"sparkles").font(.system(size:9))
+                        Text(store.t("提交并激活总结","Submit & Insight"))
+                            .font(.caption).fontWeight(.semibold)
+                    }
+                    .padding(.horizontal,14).padding(.vertical,7)
+                    .background(AppTheme.accent).cornerRadius(10)
+                    .foregroundColor(AppTheme.bg0)
                 }
             }
         }
@@ -5325,36 +5510,43 @@ struct JournalListView: View {
     var body: some View {
         NavigationView {
             VStack(spacing:0) {
-                // ── Tab bar ──────────────────────────────
+                // ── Tab bar: SF Symbol icons + sliding indicator ──
                 HStack(spacing:0) {
                     ForEach(Array(tabs.enumerated()), id:\.offset) { i, t in
-                        Button(action:{ withAnimation(.spring(response:0.25)){ tab = i } }) {
+                        Button(action:{ withAnimation(.spring(response:0.26, dampingFraction:0.78)){ tab = i } }) {
                             VStack(spacing:3) {
-                                Text(t.icon).font(.system(size:14))
-                                Text(t.label).font(.system(size:10,weight: tab==i ? .semibold:.regular))
+                                Image(systemName: tab==i ? t.filledSF : t.sf)
+                                    .font(.system(size:15, weight: tab==i ? .medium : .regular))
                                     .foregroundColor(tab==i ? AppTheme.accent : AppTheme.textTertiary)
-                                Rectangle().fill(tab==i ? AppTheme.accent : Color.clear)
-                                    .frame(height:1.5).cornerRadius(1)
+                                Text(t.label)
+                                    .font(.system(size:10, weight: tab==i ? .semibold : .regular))
+                                    .foregroundColor(tab==i ? AppTheme.accent : AppTheme.textTertiary)
+                                Capsule()
+                                    .fill(tab==i ? AppTheme.accent : Color.clear)
+                                    .frame(height:2)
+                                    .animation(.spring(response:0.26), value:tab)
                             }
                         }
                         .frame(maxWidth:.infinity)
+                        .padding(.vertical,5)
                     }
                 }
-                .padding(.horizontal,16).padding(.top,6).padding(.bottom,4)
+                .padding(.horizontal,8)
                 .background(AppTheme.bg1)
 
                 Divider().background(AppTheme.border0)
 
-                // ── Content ──────────────────────────────
-                Group {
+                // ── Content: fade transition on tab switch ────────
+                ZStack {
                     switch tab {
-                    case 0: OverviewTab()
-                    case 1: InsightTab()
-                    case 2: HistoryKWTab(kwType: .gain)
-                    case 3: HistoryKWTab(kwType: .plan)
+                    case 0: OverviewTab().transition(.opacity)
+                    case 1: InsightTab().transition(.opacity)
+                    case 2: HistoryKWTab(kwType:.gain).transition(.opacity)
+                    case 3: HistoryKWTab(kwType:.plan).transition(.opacity)
                     default: EmptyView()
                     }
                 }
+                .animation(.easeInOut(duration:0.18), value:tab)
             }
             .background(AppTheme.bg0.ignoresSafeArea())
             .navigationTitle(store.t("我的成长","My Growth"))
@@ -5367,89 +5559,70 @@ struct JournalListView: View {
         }
     }
 
-    struct TabItem { let icon: String; let label: String }
+    struct TabItem {
+        let sf: String         // SF Symbol (normal)
+        let filledSF: String   // SF Symbol (selected/filled)
+        let label: String
+    }
     var tabs: [TabItem] { [
-        .init(icon:"📊", label: store.t("综合","Overview")),
-        .init(icon:"💡", label: store.t("心得","Insights")),
-        .init(icon:"⭐️", label: store.t("收获","Wins")),
-        .init(icon:"🎯", label: store.t("计划","Plans")),
+        .init(sf:"chart.bar",           filledSF:"chart.bar.fill",           label:store.t("综合","Overview")),
+        .init(sf:"lightbulb",           filledSF:"lightbulb.fill",           label:store.t("心得","Insights")),
+        .init(sf:"star",                filledSF:"star.fill",                label:store.t("收获","Wins")),
+        .init(sf:"arrow.right.circle",  filledSF:"arrow.right.circle.fill",  label:store.t("计划","Plans")),
     ]}
 }
 
 // ── Tab 0：综合情况 ─────────────────────────────────────────
 struct OverviewTab: View {
     @EnvironmentObject var store: AppStore
-    // 粒度选择：0=年, 1=月, 2=周, 3=日
-    @State private var granularity = 1
-    // 各粒度的选中 index（在下拉/picker里选）
+    @State private var granularity = 1  // 0年 1月 2周 3日
     @State private var yearIdx   = 0
     @State private var monthIdx  = 0
     @State private var weekIdx   = 0
-    @State private var dayOffset = 0   // 0=今天, 1=昨天…
+    @State private var dayOffset = 0
 
-    // ── 数据层 ──────────────────────────────────────────
     var allYears: [GrowthYearEntry]  { store.allGrowthYears() }
-    var selectedYear: GrowthYearEntry? { allYears[safe:yearIdx] }
-
-    var monthsOfYear: [GrowthMonthEntry] {
-        guard let ye = selectedYear else { return [] }
-        return store.monthsInYear(ye.year)
-    }
+    var selectedYear: GrowthYearEntry?  { allYears[safe:yearIdx] }
+    var monthsOfYear: [GrowthMonthEntry] { selectedYear.map{ store.monthsInYear($0.year) } ?? [] }
     var selectedMonth: GrowthMonthEntry? { monthsOfYear[safe:monthIdx] }
-
-    var weeksOfMonth: [GrowthWeekEntry] {
-        guard let me = selectedMonth else { return [] }
-        return store.weeksInMonth(me.dates)
-    }
-    var selectedWeek: GrowthWeekEntry? { weeksOfMonth[safe:weekIdx] }
-
-    // 日：从本周往回推
-    var dayDate: Date {
-        Calendar.current.date(byAdding:.day, value:-dayOffset, to:store.today) ?? store.today
-    }
-
+    var weeksOfMonth: [GrowthWeekEntry]  { selectedMonth.map{ store.weeksInMonth($0.dates) } ?? [] }
+    var selectedWeek: GrowthWeekEntry?   { weeksOfMonth[safe:weekIdx] }
+    var dayDate: Date { Calendar.current.date(byAdding:.day, value:-dayOffset, to:store.today) ?? store.today }
     var focusDates: [Date] {
         switch granularity {
         case 0: return selectedYear?.dates ?? []
         case 1: return selectedMonth?.dates ?? []
         case 2: return selectedWeek?.dates ?? []
-        case 3: return [dayDate]
-        default: return []
+        default: return [dayDate]
         }
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment:.leading, spacing:16) {
+            VStack(spacing:0) {
                 if allYears.isEmpty {
-                    emptyPlaceholder(icon:"chart.bar.fill", msg:store.t("暂无数据","No data yet"))
+                    emptyPlaceholder(icon:"chart.bar.fill", msg:store.t("暂无数据","No data yet")).padding(.top,60)
                 } else {
-                    // ── 粒度 Picker ──────────────────────────
-                    granularityPicker
-
-                    // ── 时间段选择器 ─────────────────────────
-                    periodSelector
-
-                    // ── 核心数据面板 ─────────────────────────
-                    dataPanel(dates: focusDates)
+                    grainPicker.padding(.horizontal,16).padding(.top,12).padding(.bottom,8)
+                    periodNav.padding(.bottom,8)
+                    dataContent.padding(.horizontal,16).padding(.bottom,24)
                 }
             }
-            .padding(16)
         }
         .background(AppTheme.bg0.ignoresSafeArea())
     }
 
-    // ── 粒度切换 ─────────────────────────────────────────
-    @ViewBuilder var granularityPicker: some View {
-        let labels = [store.t("年","Year"), store.t("月","Month"), store.t("周","Week"), store.t("日","Day")]
+    @ViewBuilder var grainPicker: some View {
+        let labels = [store.t("年","Yr"),store.t("月","Mo"),store.t("周","Wk"),store.t("日","Day")]
         HStack(spacing:0) {
             ForEach(labels.indices, id:\.self) { i in
-                Button(action:{ withAnimation(.spring(response:0.22)){ granularity = i }}) {
+                Button(action:{ withAnimation(.spring(response:0.22)){ granularity=i }}) {
                     Text(labels[i])
-                        .font(.system(size:12, weight: granularity==i ? .semibold:.regular))
-                        .foregroundColor(granularity==i ? AppTheme.accent : AppTheme.textTertiary)
+                        .font(.system(size:12,weight:granularity==i ? .semibold:.regular))
+                        .foregroundColor(granularity==i ? .white : AppTheme.textTertiary)
                         .frame(maxWidth:.infinity).padding(.vertical,8)
-                        .background(granularity==i ? AppTheme.accent.opacity(0.12) : Color.clear)
+                        .background(granularity==i ? AppTheme.accent : Color.clear)
+                        .cornerRadius(8)
                 }
             }
         }
@@ -5457,138 +5630,379 @@ struct OverviewTab: View {
         .overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border0,lineWidth:1))
     }
 
-    // ── 时间段选择器 ─────────────────────────────────────
-    @ViewBuilder var periodSelector: some View {
+    @ViewBuilder var periodNav: some View {
         switch granularity {
-        case 0:
-            pickerRow(items: allYears.map{$0.label}, selected: $yearIdx)
+        case 0: chipRow(items:allYears.map{$0.label}, sel:$yearIdx)
         case 1:
-            VStack(spacing:6) {
-                pickerRow(items: allYears.map{$0.label}, selected: $yearIdx)
-                pickerRow(items: monthsOfYear.map{$0.label}, selected: $monthIdx)
+            VStack(spacing:4) {
+                chipRow(items:allYears.map{$0.label}, sel:$yearIdx)
+                chipRow(items:monthsOfYear.map{$0.label}, sel:$monthIdx)
             }
         case 2:
-            VStack(spacing:6) {
-                pickerRow(items: allYears.map{$0.label}, selected: $yearIdx)
-                pickerRow(items: monthsOfYear.map{$0.label}, selected: $monthIdx)
-                pickerRow(items: weeksOfMonth.map{$0.label}, selected: $weekIdx)
+            VStack(spacing:4) {
+                chipRow(items:allYears.map{$0.label}, sel:$yearIdx)
+                chipRow(items:monthsOfYear.map{$0.label}, sel:$monthIdx)
+                chipRow(items:weeksOfMonth.map{$0.label}, sel:$weekIdx)
             }
-        case 3:
-            // 日：用 stepper 往前翻
-            HStack(spacing:10) {
-                Button(action:{ dayOffset += 1 }) {
-                    Image(systemName:"chevron.left").font(.system(size:12)).foregroundColor(AppTheme.accent)
-                        .frame(width:32,height:32).background(AppTheme.bg2).cornerRadius(8)
+        default:
+            HStack {
+                Button(action:{ dayOffset+=1 }) {
+                    Image(systemName:"chevron.left").font(.system(size:12,weight:.medium))
+                        .foregroundColor(AppTheme.accent).frame(width:44,height:36)
                 }
                 Spacer()
-                Text(formatDate(dayDate, format: store.language == .chinese ? "yyyy年M月d日 EEEE":"EEE, MMM d yyyy", lang:store.language))
-                    .font(.subheadline.weight(.medium)).foregroundColor(AppTheme.textPrimary)
+                VStack(spacing:1) {
+                    Text(formatDate(dayDate, format:store.language == .chinese ? "M月d日":"MMM d", lang:store.language))
+                        .font(.system(size:13,weight:.semibold)).foregroundColor(AppTheme.textPrimary)
+                    Text(formatDate(dayDate, format:"EEEE", lang:store.language))
+                        .font(.system(size:10)).foregroundColor(AppTheme.textTertiary)
+                }
                 Spacer()
-                Button(action:{ if dayOffset > 0 { dayOffset -= 1 }}) {
-                    Image(systemName:"chevron.right").font(.system(size:12))
-                        .foregroundColor(dayOffset > 0 ? AppTheme.accent : AppTheme.textTertiary)
-                        .frame(width:32,height:32).background(AppTheme.bg2).cornerRadius(8)
+                Button(action:{ if dayOffset>0 { dayOffset-=1 }}) {
+                    Image(systemName:"chevron.right").font(.system(size:12,weight:.medium))
+                        .foregroundColor(dayOffset>0 ? AppTheme.accent : AppTheme.textTertiary)
+                        .frame(width:44,height:36)
                 }
             }
-        default: EmptyView()
+            .background(AppTheme.bg1).cornerRadius(10)
+            .overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border0,lineWidth:1))
+            .padding(.horizontal,16)
         }
     }
 
-    @ViewBuilder func pickerRow(items:[String], selected: Binding<Int>) -> some View {
+    @ViewBuilder func chipRow(items:[String], sel:Binding<Int>) -> some View {
         ScrollView(.horizontal, showsIndicators:false) {
-            HStack(spacing:6) {
+            HStack(spacing:5) {
                 ForEach(items.indices, id:\.self) { i in
-                    Button(action:{ withAnimation(.spring(response:0.2)){ selected.wrappedValue = i }}) {
+                    Button(action:{ withAnimation(.spring(response:0.2)){ sel.wrappedValue=i }}) {
                         Text(items[i])
-                            .font(.system(size:11, weight: selected.wrappedValue==i ? .semibold:.regular))
-                            .foregroundColor(selected.wrappedValue==i ? AppTheme.accent : AppTheme.textSecondary)
+                            .font(.system(size:11,weight:sel.wrappedValue==i ? .semibold:.regular))
+                            .foregroundColor(sel.wrappedValue==i ? AppTheme.accent : AppTheme.textSecondary)
                             .padding(.horizontal,10).padding(.vertical,5)
-                            .background(selected.wrappedValue==i ? AppTheme.accent.opacity(0.12) : AppTheme.bg2)
-                            .cornerRadius(8)
+                            .background(sel.wrappedValue==i ? AppTheme.accent.opacity(0.12) : AppTheme.bg2)
+                            .cornerRadius(7)
+                            .overlay(sel.wrappedValue==i ?
+                                RoundedRectangle(cornerRadius:7).stroke(AppTheme.accent.opacity(0.35),lineWidth:1) : nil)
                     }
                 }
-            }
+            }.padding(.horizontal,16)
         }
     }
 
-    // ── 数据面板 ─────────────────────────────────────────
-    @ViewBuilder func dataPanel(dates:[Date]) -> some View {
-        let activeDates = dates.filter{ $0 <= store.today }
-        if activeDates.isEmpty {
+    @ViewBuilder var dataContent: some View {
+        let active = focusDates.filter{$0 <= store.today}
+        if active.isEmpty {
             Text(store.t("该时段暂无数据","No data for this period"))
                 .font(.subheadline).foregroundColor(AppTheme.textTertiary)
                 .frame(maxWidth:.infinity).padding(.vertical,40)
         } else {
-        let rate      = store.avgCompletion(for:activeDates)
-        let taskPairs = activeDates.flatMap{d in store.goals(for:d).flatMap{g in store.tasks(for:d,goal:g).map{(d,$0)}}}
-        let donePairs = taskPairs.filter{store.progress(for:$0.0,taskId:$0.1.id)>=1.0}
-        let goalCount = Set(activeDates.flatMap{store.goals(for:$0).map{$0.id}}).count
-        let dist      = store.moodDistribution(for:activeDates)
-        let gainKWs   = store.allGainKeywords(for:activeDates)
-        let planKWs   = store.allPlanKeywords(for:activeDates)
+            let rate  = store.avgCompletion(for:active)
+            let mood  = store.avgMood(for:active)
+            let taskT = active.flatMap{d in store.goals(for:d).flatMap{store.tasks(for:d,goal:$0)}}.count
+            let taskD = active.flatMap{d in store.goals(for:d).flatMap{store.tasks(for:d,goal:$0)}.filter{store.progress(for:d,taskId:$0.id)>=1.0}}.count
+            let goalC = Set(active.flatMap{store.goals(for:$0).map{$0.id}}).count
+            let dist  = store.moodDistribution(for:active)
+            let gains = store.allGainKeywords(for:active)
+            let plans = store.allPlanKeywords(for:active)
+            let activeDays = active.filter{store.completionRate(for:$0)>0}.count
 
-        VStack(alignment:.leading, spacing:12) {
-            // 完成率 + 任务 + 目标数
-            HStack(spacing:8) {
-                bigStatTile(value: rate>0 ? "\(Int(rate*100))%" : "—",
-                            label: store.t("完成率","Completion"),
-                            color: AppTheme.accent)
-                bigStatTile(value: "\(donePairs.count)/\(taskPairs.count)",
-                            label: store.t("任务","Tasks"),
-                            color: AppTheme.textSecondary)
-                bigStatTile(value: "\(goalCount)",
-                            label: store.t("目标","Goals"),
-                            color: AppTheme.textSecondary)
+            VStack(alignment:.leading, spacing:12) {
+                LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())], spacing:8) {
+                    ovCard(value:rate>0 ? "\(Int(rate*100))%" : "—",
+                           label:store.t("完成率","Completion"),
+                           badge:rate>=0.8 ? "🏆" : rate>=0.6 ? "✨" : rate>0 ? "💪" : "",
+                           color:AppTheme.accent)
+                    ovCard(value:"\(taskD)/\(taskT)",
+                           label:store.t("任务","Tasks"),
+                           badge:store.t("\(goalC)目标","\(goalC) goals"),
+                           color:AppTheme.textSecondary)
+                    ovCard(value:mood>0 ? String(format:"%.1f",mood) : "—",
+                           label:store.t("平均心情","Avg Mood"),
+                           badge:mood>=4.5 ? "🔥" : mood>=3.5 ? "😊" : mood>=2.5 ? "🙂" : mood>0 ? "😐" : "",
+                           color:AppTheme.gold)
+                    ovCard(value:"\(activeDays)",
+                           label:store.t("活跃天数","Active Days"),
+                           badge:store.t("/\(active.count)天","/\(active.count)d"),
+                           color:AppTheme.textSecondary)
+                }
+                if !dist.isEmpty && active.count>1 { moodBarChart(dist:dist) }
+                if !gains.isEmpty {
+                    kwCloud(icon:"star.fill", color:AppTheme.accent,
+                            label:store.t("收获 · \(gains.count)","Wins · \(gains.count)"), kws:gains)
+                }
+                if !plans.isEmpty {
+                    kwCloud(icon:"arrow.right.circle.fill", color:Color(red:0.6,green:0.5,blue:0.9),
+                            label:store.t("计划 · \(plans.count)","Plans · \(plans.count)"), kws:plans)
+                }
             }
+        }
+    }
 
-            // 心情分布
-            if !dist.isEmpty {
-                VStack(alignment:.leading,spacing:6) {
-                    Text(store.t("心情分布","Mood Distribution"))
-                        .font(.system(size:9)).foregroundColor(AppTheme.textTertiary).kerning(1.2)
-                    HStack(spacing:0) {
-                        ForEach([1,2,3,4,5], id:\.self) { v in
-                            if let c = dist[v], c > 0 {
-                                let total = dist.values.reduce(0,+)
-                                let pct   = Double(c)/Double(total)
-                                VStack(spacing:3) {
-                                    Text(["","😔","😐","🙂","😊","🔥"][v]).font(.system(size:13))
-                                    ZStack(alignment:.bottom) {
-                                            RoundedRectangle(cornerRadius:3)
-                                                .fill(Color.clear)
-                                                .frame(height:40)
-                                            RoundedRectangle(cornerRadius:3)
-                                                .fill(v >= 4 ? AppTheme.accent : v == 3 ? AppTheme.accent.opacity(0.5) : AppTheme.gold.opacity(0.4))
-                                                .frame(height:max(4, pct*40))
-                                        }
-                                        .frame(height:40)
-                                    Text("×\(c)").font(.system(size:9)).foregroundColor(AppTheme.textTertiary)
-                                }
-                                .frame(maxWidth:.infinity)
-                            }
+    @ViewBuilder func ovCard(value:String, label:String, badge:String, color:Color) -> some View {
+        VStack(alignment:.leading, spacing:4) {
+            HStack(alignment:.lastTextBaseline, spacing:4) {
+                Text(value).font(.system(size:22,weight:.light,design:.rounded))
+                    .foregroundColor(color).monospacedDigit()
+                Text(badge).font(.system(size:11)).foregroundColor(AppTheme.textTertiary)
+            }
+            Text(label).font(.system(size:10)).foregroundColor(AppTheme.textTertiary)
+        }
+        .frame(maxWidth:.infinity, alignment:.leading)
+        .padding(12).background(AppTheme.bg1).cornerRadius(12)
+        .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1))
+    }
+
+    @ViewBuilder func moodBarChart(dist:[Int:Int]) -> some View {
+        let total = max(1, dist.values.reduce(0,+))
+        VStack(alignment:.leading, spacing:6) {
+            Text(store.t("心情分布","Mood Distribution"))
+                .font(.system(size:10,weight:.medium)).foregroundColor(AppTheme.textTertiary)
+            GeometryReader { geo in
+                HStack(spacing:2) {
+                    ForEach([1,2,3,4,5], id:\.self) { v in
+                        if let c=dist[v], c>0 {
+                            let frac=CGFloat(c)/CGFloat(total)
+                            let w=max(4, geo.size.width*frac-2)
+                            let col:Color = v>=4 ? AppTheme.accent : v==3 ? AppTheme.accent.opacity(0.5) : AppTheme.gold.opacity(0.5)
+                            ZStack {
+                                RoundedRectangle(cornerRadius:4).fill(col).frame(width:w,height:22)
+                                if w>22 { Text(["","😔","😐","🙂","😊","🔥"][v]).font(.system(size:10)) }
+                            }.frame(width:w)
                         }
                     }
                 }
-                .padding(10).background(AppTheme.bg1).cornerRadius(12)
-                .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1))
-            }
-
-            // 收获 / 计划 chips
-            if !gainKWs.isEmpty {
-                kwSummaryRow(icon:"star.fill", color:AppTheme.accent,
-                             label:store.t("收获","Wins"), kws:gainKWs)
-            }
-            if !planKWs.isEmpty {
-                kwSummaryRow(icon:"arrow.right.circle.fill", color:Color(red:0.6,green:0.5,blue:0.9),
-                             label:store.t("计划","Plans"), kws:planKWs)
+            }.frame(height:22)
+            HStack(spacing:8) {
+                ForEach([1,2,3,4,5], id:\.self) { v in
+                    if let c=dist[v], c>0 {
+                        Text("\(["","😔","😐","🙂","😊","🔥"][v]) \(c)\(store.t("天","d"))")
+                            .font(.system(size:9)).foregroundColor(AppTheme.textTertiary)
+                    }
+                }
+                Spacer()
             }
         }
-        } // else activeDates
+        .padding(10).background(AppTheme.bg1).cornerRadius(12)
+        .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1))
     }
 
-    @ViewBuilder func bigStatTile(value:String, label:String, color:Color) -> some View {
-        VStack(alignment:.leading, spacing:3) {
-            Text(value).font(.system(size:22,weight:.light,design:.rounded)).foregroundColor(color).monospacedDigit()
+    @ViewBuilder func kwCloud(icon:String, color:Color, label:String, kws:[String]) -> some View {
+        VStack(alignment:.leading, spacing:8) {
+            HStack(spacing:5) {
+                Image(systemName:icon).font(.system(size:9)).foregroundColor(color)
+                Text(label).font(.system(size:10,weight:.semibold)).foregroundColor(color)
+            }
+            FlowLayout(spacing:5) {
+                ForEach(kws, id:\.self) { kw in
+                    Text(kw).font(.system(size:11)).foregroundColor(color)
+                        .padding(.horizontal,8).padding(.vertical,4)
+                        .background(color.opacity(0.1)).cornerRadius(20)
+                }
+            }
+        }
+        .padding(12).background(AppTheme.bg1).cornerRadius(12)
+        .overlay(RoundedRectangle(cornerRadius:12).stroke(color.opacity(0.2),lineWidth:1))
+    }
+}
+
+// ── Tab 1：我的心得 ─────────────────────────────────────────
+struct InsightTab: View {
+    @EnvironmentObject var store: AppStore
+    @State private var granularity = 1
+    @State private var yearIdx   = 0
+    @State private var monthIdx  = 0
+    @State private var weekIdx   = 0
+    @State private var dayOffset = 0
+
+    var allYears: [GrowthYearEntry] {
+        store.allGrowthYears().filter{store.resolvedEntriesInPeriod(dates:$0.dates).count>0}
+    }
+    var selectedYear: GrowthYearEntry?   { allYears[safe:yearIdx] }
+    var monthsOfYear: [GrowthMonthEntry] {
+        guard let ye=selectedYear else { return [] }
+        return store.monthsInYear(ye.year).filter{store.resolvedEntriesInPeriod(dates:$0.dates).count>0}
+    }
+    var selectedMonth: GrowthMonthEntry? { monthsOfYear[safe:monthIdx] }
+    var weeksOfMonth: [GrowthWeekEntry]  {
+        guard let me=selectedMonth else { return [] }
+        return store.weeksInMonth(me.dates).filter{store.resolvedEntriesInPeriod(dates:$0.dates).count>0}
+    }
+    var selectedWeek: GrowthWeekEntry?   { weeksOfMonth[safe:weekIdx] }
+    var dayDate: Date { Calendar.current.date(byAdding:.day, value:-dayOffset, to:store.today) ?? store.today }
+    var focusDates: [Date] {
+        switch granularity {
+        case 0: return selectedYear?.dates ?? []
+        case 1: return selectedMonth?.dates ?? []
+        case 2: return selectedWeek?.dates ?? []
+        default: return [dayDate]
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing:0) {
+                if allYears.isEmpty && granularity<3 {
+                    emptyPlaceholder(icon:"lightbulb.fill", msg:store.t("还没有解决记录","No insights yet")).padding(.top,60)
+                } else {
+                    inGrainPicker.padding(.horizontal,16).padding(.top,12).padding(.bottom,8)
+                    inPeriodNav.padding(.bottom,8)
+                    insightContent.padding(.horizontal,16).padding(.bottom,24)
+                }
+            }
+        }
+        .background(AppTheme.bg0.ignoresSafeArea())
+    }
+
+    @ViewBuilder var inGrainPicker: some View {
+        let labels=[store.t("年","Year"),store.t("月","Month"),store.t("周","Week"),store.t("日","Day")]
+        HStack(spacing:0) {
+            ForEach(labels.indices, id:\.self) { i in
+                Button(action:{ withAnimation(.spring(response:0.22)){ granularity=i }}) {
+                    Text(labels[i])
+                        .font(.system(size:12,weight:granularity==i ? .semibold:.regular))
+                        .foregroundColor(granularity==i ? AppTheme.accent : AppTheme.textTertiary)
+                        .frame(maxWidth:.infinity).padding(.vertical,8)
+                        .background(granularity==i ? AppTheme.accent.opacity(0.12) : Color.clear)
+                }.cornerRadius(8)
+            }
+        }
+        .background(AppTheme.bg2).cornerRadius(10)
+        .overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border0,lineWidth:1))
+    }
+
+    @ViewBuilder var inPeriodNav: some View {
+        switch granularity {
+        case 0: inChipRow(items:allYears.map{$0.label}, sel:$yearIdx)
+        case 1:
+            VStack(spacing:4) {
+                inChipRow(items:allYears.map{$0.label}, sel:$yearIdx)
+                inChipRow(items:monthsOfYear.map{$0.label}, sel:$monthIdx)
+            }
+        case 2:
+            VStack(spacing:4) {
+                inChipRow(items:allYears.map{$0.label}, sel:$yearIdx)
+                inChipRow(items:monthsOfYear.map{$0.label}, sel:$monthIdx)
+                inChipRow(items:weeksOfMonth.map{$0.label}, sel:$weekIdx)
+            }
+        default:
+            HStack {
+                Button(action:{ dayOffset+=1 }) {
+                    Image(systemName:"chevron.left").font(.system(size:12,weight:.medium))
+                        .foregroundColor(AppTheme.accent).frame(width:44,height:36)
+                }
+                Spacer()
+                Text(formatDate(dayDate, format:store.language == .chinese ? "M月d日 EEEE":"EEE, MMM d", lang:store.language))
+                    .font(.system(size:13,weight:.medium)).foregroundColor(AppTheme.textPrimary)
+                Spacer()
+                Button(action:{ if dayOffset>0 { dayOffset-=1 }}) {
+                    Image(systemName:"chevron.right").font(.system(size:12,weight:.medium))
+                        .foregroundColor(dayOffset>0 ? AppTheme.accent : AppTheme.textTertiary)
+                        .frame(width:44,height:36)
+                }
+            }
+            .background(AppTheme.bg1).cornerRadius(10)
+            .overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border0,lineWidth:1))
+            .padding(.horizontal,16)
+        }
+    }
+
+    @ViewBuilder func inChipRow(items:[String], sel:Binding<Int>) -> some View {
+        ScrollView(.horizontal, showsIndicators:false) {
+            HStack(spacing:5) {
+                ForEach(items.indices, id:\.self) { i in
+                    Button(action:{ withAnimation(.spring(response:0.2)){ sel.wrappedValue=i }}) {
+                        Text(items[i])
+                            .font(.system(size:11,weight:sel.wrappedValue==i ? .semibold:.regular))
+                            .foregroundColor(sel.wrappedValue==i ? AppTheme.accent : AppTheme.textSecondary)
+                            .padding(.horizontal,10).padding(.vertical,5)
+                            .background(sel.wrappedValue==i ? AppTheme.accent.opacity(0.12) : AppTheme.bg2)
+                            .cornerRadius(7)
+                    }
+                }
+            }.padding(.horizontal,16)
+        }
+    }
+
+    @ViewBuilder var insightContent: some View {
+        if granularity==0 { yearInsightView }
+        else {
+            let entries=store.resolvedEntriesInPeriod(dates:focusDates)
+            if entries.isEmpty {
+                Text(store.t("该时段无解决记录","No resolved items here"))
+                    .font(.subheadline).foregroundColor(AppTheme.textTertiary)
+                    .frame(maxWidth:.infinity).padding(.vertical,36)
+            } else {
+                VStack(alignment:.leading, spacing:10) {
+                    HStack(spacing:8) {
+                        Image(systemName:"checkmark.circle.fill").font(.system(size:11)).foregroundColor(AppTheme.accent)
+                        Text(store.t("解决 \(entries.count) 项","Resolved \(entries.count)"))
+                            .font(.system(size:12,weight:.semibold)).foregroundColor(AppTheme.textPrimary)
+                        let noted=entries.filter{!$0.resolvedNote.isEmpty}.count
+                        if noted>0 {
+                            Text("· \(noted) \(store.t("条心得","insights"))")
+                                .font(.system(size:11)).foregroundColor(AppTheme.textTertiary)
+                        }
+                        Spacer()
+                    }
+                    ForEach(entries, id:\.id) { e in timelineRow(e) }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder var yearInsightView: some View {
+        if let ye=selectedYear {
+            let months=store.monthsInYear(ye.year)
+            let counts=months.map{ store.resolvedEntriesInPeriod(dates:$0.dates).count }
+            let maxC=max(1, counts.max() ?? 1)
+            let total=counts.reduce(0,+)
+            let bestI=counts.enumerated().max(by:{$0.element<$1.element})?.offset
+            let allE=store.resolvedEntriesInPeriod(dates:ye.dates)
+            let withNote=allE.filter{!$0.resolvedNote.isEmpty}.count
+
+            VStack(alignment:.leading, spacing:12) {
+                HStack(spacing:8) {
+                    yrCard(value:"\(total)", label:store.t("年度解决","Resolved"))
+                    if let bi=bestI, counts[bi]>0 { yrCard(value:months[bi].label, label:store.t("最多月","Top month")) }
+                    yrCard(value:"\(withNote)", label:store.t("有心得","With insights"))
+                }
+                VStack(alignment:.leading, spacing:6) {
+                    Text(store.t("月度趋势","Monthly trend"))
+                        .font(.system(size:10,weight:.medium)).foregroundColor(AppTheme.textTertiary)
+                    HStack(alignment:.bottom, spacing:4) {
+                        ForEach(months.indices, id:\.self) { i in
+                            let c=counts[i]; let h=CGFloat(c)/CGFloat(maxC)*52
+                            VStack(spacing:3) {
+                                if c>0 { Text("\(c)").font(.system(size:7)).foregroundColor(AppTheme.textTertiary) }
+                                else   { Text("").font(.system(size:7)) }
+                                RoundedRectangle(cornerRadius:3)
+                                    .fill(bestI==i && c>0 ? AppTheme.accent : c>0 ? AppTheme.accent.opacity(0.35) : AppTheme.bg2)
+                                    .frame(height:max(3,h))
+                                Text(months[i].label.prefix(2)).font(.system(size:7)).foregroundColor(AppTheme.textTertiary)
+                            }.frame(maxWidth:.infinity)
+                        }
+                    }.frame(height:70)
+                }
+                .padding(10).background(AppTheme.bg1).cornerRadius(12)
+                .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1))
+                if !allE.isEmpty {
+                    VStack(alignment:.leading, spacing:8) {
+                        Text(store.t("本年心得摘要","Year highlights"))
+                            .font(.system(size:10,weight:.medium)).foregroundColor(AppTheme.textTertiary)
+                        ForEach(allE.prefix(5), id:\.id) { e in timelineRow(e) }
+                        if allE.count>5 {
+                            Text(store.t("还有 \(allE.count-5) 条","+ \(allE.count-5) more"))
+                                .font(.system(size:11)).foregroundColor(AppTheme.textTertiary).padding(.top,2)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder func yrCard(value:String, label:String) -> some View {
+        VStack(alignment:.leading, spacing:2) {
+            Text(value).font(.system(size:20,weight:.light,design:.rounded)).foregroundColor(AppTheme.accent)
             Text(label).font(.system(size:9)).foregroundColor(AppTheme.textTertiary)
         }
         .frame(maxWidth:.infinity, alignment:.leading)
@@ -5596,211 +6010,35 @@ struct OverviewTab: View {
         .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1))
     }
 
-    @ViewBuilder func kwSummaryRow(icon:String, color:Color, label:String, kws:[String]) -> some View {
-        VStack(alignment:.leading, spacing:6) {
-            HStack(spacing:4) {
-                Image(systemName:icon).font(.system(size:9)).foregroundColor(color)
-                Text(label).font(.system(size:10,weight:.medium)).foregroundColor(color)
-                Text("(\(kws.count))").font(.system(size:9)).foregroundColor(color.opacity(0.6))
-            }
-            FlowLayout(spacing:5) {
-                ForEach(kws,id:\.self) { kw in
-                    Text(kw).font(.system(size:10)).foregroundColor(color)
-                        .padding(.horizontal,7).padding(.vertical,3)
-                        .background(color.opacity(0.1)).cornerRadius(12)
-                }
-            }
-        }
-        .padding(10).background(AppTheme.bg1).cornerRadius(12)
-        .overlay(RoundedRectangle(cornerRadius:12).stroke(color.opacity(0.15),lineWidth:1))
-    }
-}
-
-
-// ── Tab 1：我的心得 ─────────────────────────────────────────
-struct InsightTab: View {
-    @EnvironmentObject var store: AppStore
-    @State private var granularity = 1   // 0=年,1=月,2=周,3=日
-    @State private var yearIdx   = 0
-    @State private var monthIdx  = 0
-    @State private var weekIdx   = 0
-    @State private var dayOffset = 0
-
-    var allYears: [GrowthYearEntry] {
-        store.allGrowthYears().filter { ye in
-            store.resolvedEntriesInPeriod(dates:ye.dates).count > 0
-        }
-    }
-    var selectedYear: GrowthYearEntry? { allYears[safe:yearIdx] }
-
-    var monthsOfYear: [GrowthMonthEntry] {
-        guard let ye = selectedYear else { return [] }
-        return store.monthsInYear(ye.year).filter { store.resolvedEntriesInPeriod(dates:$0.dates).count > 0 }
-    }
-    var selectedMonth: GrowthMonthEntry? { monthsOfYear[safe:monthIdx] }
-
-    var weeksOfMonth: [GrowthWeekEntry] {
-        guard let me = selectedMonth else { return [] }
-        return store.weeksInMonth(me.dates).filter { store.resolvedEntriesInPeriod(dates:$0.dates).count > 0 }
-    }
-    var selectedWeek: GrowthWeekEntry? { weeksOfMonth[safe:weekIdx] }
-
-    var dayDate: Date {
-        Calendar.current.date(byAdding:.day, value:-dayOffset, to:store.today) ?? store.today
-    }
-
-    var focusDates: [Date] {
-        switch granularity {
-        case 0: return selectedYear?.dates ?? []
-        case 1: return selectedMonth?.dates ?? []
-        case 2: return selectedWeek?.dates ?? []
-        case 3: return [dayDate]
-        default: return []
-        }
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment:.leading, spacing:16) {
-                if allYears.isEmpty {
-                    emptyPlaceholder(icon:"lightbulb.fill", msg:store.t("还没有解决记录","No resolved items yet"))
-                } else {
-                    // 粒度切换
-                    let labels = [store.t("年","Year"),store.t("月","Month"),store.t("周","Week"),store.t("日","Day")]
-                    HStack(spacing:0) {
-                        ForEach(labels.indices, id:\.self) { i in
-                            Button(action:{ withAnimation(.spring(response:0.22)){ granularity = i }}) {
-                                Text(labels[i])
-                                    .font(.system(size:12,weight:granularity==i ? .semibold:.regular))
-                                    .foregroundColor(granularity==i ? AppTheme.accent : AppTheme.textTertiary)
-                                    .frame(maxWidth:.infinity).padding(.vertical,8)
-                                    .background(granularity==i ? AppTheme.accent.opacity(0.12) : Color.clear)
-                            }
-                        }
-                    }
-                    .background(AppTheme.bg2).cornerRadius(10)
-                    .overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border0,lineWidth:1))
-
-                    // 时段选择
-                    periodSelector
-
-                    // 心得内容
-                    resolvedPanel(dates: focusDates)
-                }
-            }
-            .padding(16)
-        }
-        .background(AppTheme.bg0.ignoresSafeArea())
-    }
-
-    @ViewBuilder var periodSelector: some View {
-        switch granularity {
-        case 0:
-            periodChips(items:allYears.map{$0.label}, selected:$yearIdx)
-        case 1:
-            VStack(spacing:6) {
-                periodChips(items:allYears.map{$0.label}, selected:$yearIdx)
-                if !monthsOfYear.isEmpty { periodChips(items:monthsOfYear.map{$0.label}, selected:$monthIdx) }
-            }
-        case 2:
-            VStack(spacing:6) {
-                periodChips(items:allYears.map{$0.label}, selected:$yearIdx)
-                if !monthsOfYear.isEmpty { periodChips(items:monthsOfYear.map{$0.label}, selected:$monthIdx) }
-                if !weeksOfMonth.isEmpty { periodChips(items:weeksOfMonth.map{$0.label}, selected:$weekIdx) }
-            }
-        case 3:
-            HStack(spacing:10) {
-                Button(action:{ dayOffset += 1 }) {
-                    Image(systemName:"chevron.left").font(.system(size:12)).foregroundColor(AppTheme.accent)
-                        .frame(width:32,height:32).background(AppTheme.bg2).cornerRadius(8)
-                }
-                Spacer()
-                Text(formatDate(dayDate, format: store.language == .chinese ? "M月d日 EEEE":"EEE, MMM d", lang:store.language))
-                    .font(.subheadline.weight(.medium)).foregroundColor(AppTheme.textPrimary)
-                Spacer()
-                Button(action:{ if dayOffset>0 { dayOffset -= 1 }}) {
-                    Image(systemName:"chevron.right").font(.system(size:12))
-                        .foregroundColor(dayOffset>0 ? AppTheme.accent : AppTheme.textTertiary)
-                        .frame(width:32,height:32).background(AppTheme.bg2).cornerRadius(8)
-                }
-            }
-        default: EmptyView()
-        }
-    }
-
-    @ViewBuilder func periodChips(items:[String], selected:Binding<Int>) -> some View {
-        ScrollView(.horizontal, showsIndicators:false) {
-            HStack(spacing:6) {
-                ForEach(items.indices,id:\.self) { i in
-                    Button(action:{ withAnimation(.spring(response:0.2)){ selected.wrappedValue=i }}) {
-                        Text(items[i])
-                            .font(.system(size:11,weight:selected.wrappedValue==i ? .semibold:.regular))
-                            .foregroundColor(selected.wrappedValue==i ? AppTheme.accent : AppTheme.textSecondary)
-                            .padding(.horizontal,10).padding(.vertical,5)
-                            .background(selected.wrappedValue==i ? AppTheme.accent.opacity(0.12) : AppTheme.bg2)
-                            .cornerRadius(8)
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder func resolvedPanel(dates:[Date]) -> some View {
-        let entries = store.resolvedEntriesInPeriod(dates:dates)
-        if entries.isEmpty {
-            Text(store.t("该时段无解决记录","No resolved items in this period"))
-                .font(.subheadline).foregroundColor(AppTheme.textTertiary)
-                .frame(maxWidth:.infinity).padding(.vertical,30)
-        } else {
-            VStack(alignment:.leading, spacing:8) {
-                // 统计条
-                HStack {
-                    Image(systemName:"checkmark.circle.fill").font(.system(size:12)).foregroundColor(AppTheme.accent)
-                    Text(store.t("共解决 \(entries.count) 项","Resolved \(entries.count) items"))
-                        .font(.system(size:12,weight:.medium)).foregroundColor(AppTheme.textPrimary)
+    @ViewBuilder func timelineRow(_ e: DailyChallengeEntry) -> some View {
+        HStack(alignment:.top, spacing:8) {
+            VStack(spacing:0) {
+                Circle().fill(AppTheme.accent).frame(width:7,height:7).padding(.top,5)
+                Rectangle().fill(AppTheme.border0).frame(width:1).frame(maxHeight:.infinity)
+            }.frame(width:7)
+            VStack(alignment:.leading, spacing:4) {
+                HStack(spacing:6) {
+                    Text(e.keyword)
+                        .font(.system(size:12,weight:.medium)).foregroundColor(AppTheme.textTertiary)
+                        .strikethrough(true, color:AppTheme.textTertiary.opacity(0.4))
                     Spacer()
-                    let withNote = entries.filter{!$0.resolvedNote.isEmpty}.count
-                    if withNote > 0 {
-                        Text(store.t("\(withNote)条心得","\(withNote) insights"))
-                            .font(.system(size:10)).foregroundColor(AppTheme.accent.opacity(0.7))
+                    if let rd=e.resolvedOnDate {
+                        Text(formatDate(rd, format:"M/d", lang:store.language))
+                            .font(.system(size:9)).foregroundColor(AppTheme.textTertiary)
                     }
                 }
-
-                ForEach(entries, id:\.id) { e in
-                    HStack(alignment:.top, spacing:10) {
-                        Image(systemName:"checkmark.circle.fill").font(.system(size:12))
-                            .foregroundColor(AppTheme.accent).padding(.top,2)
-                        VStack(alignment:.leading, spacing:4) {
-                            HStack(spacing:8) {
-                                Text(e.keyword)
-                                    .font(.system(size:12,weight:.medium))
-                                    .foregroundColor(AppTheme.textSecondary)
-                                    .strikethrough(true,color:AppTheme.textTertiary)
-                                if let rd = e.resolvedOnDate {
-                                    Text(formatDate(rd, format:store.language == .chinese ? "M/d":"M/d", lang:store.language))
-                                        .font(.system(size:9)).foregroundColor(AppTheme.textTertiary)
-                                }
-                            }
-                            if !e.resolvedNote.isEmpty {
-                                Text(e.resolvedNote)
-                                    .font(.system(size:11))
-                                    .foregroundColor(AppTheme.textTertiary)
-                                    .lineLimit(4)
-                                    .padding(8)
-                                    .background(AppTheme.accent.opacity(0.04))
-                                    .cornerRadius(8)
-                            }
-                        }
-                    }
-                    .padding(10).background(AppTheme.bg1).cornerRadius(12)
-                    .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1))
+                if !e.resolvedNote.isEmpty {
+                    Text(e.resolvedNote).font(.system(size:11)).foregroundColor(AppTheme.textSecondary)
+                        .lineLimit(3).padding(8)
+                        .background(AppTheme.accent.opacity(0.06)).cornerRadius(8)
                 }
             }
+            .padding(10).background(AppTheme.bg1).cornerRadius(12)
+            .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1))
+            .frame(maxWidth:.infinity)
         }
     }
 }
-
-
 
 // ── Tab 2/3：历史收获 / 历史计划 ────────────────────────────
 struct HistoryKWTab: View {
@@ -5811,259 +6049,552 @@ struct HistoryKWTab: View {
     @State private var expandedYears:  Set<Int>    = []
     @State private var expandedMonths: Set<String> = []
     @State private var expandedWeeks:  Set<String> = []
-    @State private var editingDate: Date? = nil   // 弹出编辑sheet的日期
+    @State private var editingDate: Date? = nil
     @State private var editKWs: [String] = []
     @State private var editInput = ""
     @FocusState private var editFocused: Bool
 
     var color: Color  { kwType == .gain ? AppTheme.accent : Color(red:0.6,green:0.5,blue:0.9) }
     var icon:  String { kwType == .gain ? "star.fill" : "arrow.right.circle.fill" }
-
-    var kwDates: [Date] {
-        kwType == .gain ? store.datesWithGains : store.datesWithPlans
-    }
-
+    var kwDates: [Date] { kwType == .gain ? store.datesWithGains : store.datesWithPlans }
     var allYears: [GrowthYearEntry] {
-        store.allGrowthYears().filter { ye in kwDates.contains { Calendar.current.component(.year,from:$0)==ye.year } }
+        store.allGrowthYears().filter{ ye in kwDates.contains{ Calendar.current.component(.year,from:$0)==ye.year } }
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment:.leading,spacing:0) {
+            VStack(alignment:.leading, spacing:0) {
                 if allYears.isEmpty {
                     emptyPlaceholder(icon:icon, msg:store.t("还没有记录","No records yet"))
                 } else {
+                    globalCloud.padding(.horizontal,16).padding(.top,12).padding(.bottom,6)
+                    Divider().background(AppTheme.border0).padding(.horizontal,16).padding(.bottom,4)
                     ForEach(allYears, id:\.year) { ye in yearBlock(ye) }
                 }
-            }
-            .padding(.horizontal,16).padding(.vertical,12)
+            }.padding(.bottom,24)
         }
         .background(AppTheme.bg0.ignoresSafeArea())
-        .onAppear { if let y = allYears.first { expandedYears.insert(y.year) } }
-        .sheet(isPresented: .init(get:{ editingDate != nil }, set:{ if !$0 { editingDate = nil } })) {
-            if let d = editingDate { editSheet(date: d) }
+        .onAppear{ if let y=allYears.first { expandedYears.insert(y.year) } }
+        .sheet(isPresented:.init(get:{ editingDate != nil }, set:{ if !$0 { editingDate=nil } })) {
+            if let d=editingDate { editSheet(date:d) }
         }
+    }
+
+    @ViewBuilder var globalCloud: some View {
+        let allKWs=kwDates.prefix(180).flatMap{ kwsFor(dates:[$0]) }
+        let freq:[String:Int]=allKWs.reduce(into:[:]){ $0[$1,default:0]+=1 }
+        let sorted=freq.sorted{$0.value>$1.value}.map{$0.key}
+
+        VStack(alignment:.leading, spacing:8) {
+            HStack {
+                Image(systemName:icon).font(.system(size:10)).foregroundColor(color)
+                Text(store.t(kwType == .gain ? "高频收获词":"高频计划词",
+                             kwType == .gain ? "Top wins":"Top plans"))
+                    .font(.system(size:11,weight:.semibold)).foregroundColor(color)
+                Spacer()
+                Text("\(sorted.count) \(store.t("词","words"))").font(.system(size:10)).foregroundColor(AppTheme.textTertiary)
+            }
+            if sorted.isEmpty {
+                Text(store.t("暂无数据","No data yet")).font(.caption).foregroundColor(AppTheme.textTertiary)
+            } else {
+                FlowLayout(spacing:5) {
+                    ForEach(sorted.prefix(24), id:\.self) { kw in
+                        let f=freq[kw] ?? 1
+                        Text(f>1 ? "\(kw) \(f)" : kw)
+                            .font(.system(size:f>3 ? 13:11))
+                            .foregroundColor(f>1 ? color : color.opacity(0.6))
+                            .padding(.horizontal,8).padding(.vertical,4)
+                            .background(color.opacity(f>2 ? 0.16:0.08))
+                            .cornerRadius(20)
+                    }
+                }
+            }
+        }
+        .padding(12).background(AppTheme.bg1).cornerRadius(14)
+        .overlay(RoundedRectangle(cornerRadius:14).stroke(color.opacity(0.2),lineWidth:1))
     }
 
     @ViewBuilder func yearBlock(_ ye: GrowthYearEntry) -> some View {
-        let isOpen = expandedYears.contains(ye.year)
-        let kws = kwsFor(dates: ye.dates)
-        VStack(alignment:.leading,spacing:0) {
+        let isOpen=expandedYears.contains(ye.year)
+        let kws=kwsFor(dates:ye.dates)
+        VStack(alignment:.leading, spacing:0) {
             Button(action:{withAnimation(.spring(response:0.28)){
                 if isOpen { expandedYears.remove(ye.year) } else { expandedYears.insert(ye.year) }
             }}) {
-                HStack {
-                    Text(ye.label).font(.system(size:15,weight:.semibold)).foregroundColor(AppTheme.textPrimary)
+                HStack(spacing:8) {
+                    Text(ye.label).font(.system(size:14,weight:.semibold)).foregroundColor(AppTheme.textPrimary)
+                    kwBadge(kws.count)
                     Spacer()
-                    countBadge(kws.count)
+                    if !isOpen {
+                        HStack(spacing:3) {
+                            ForEach(kws.prefix(4), id:\.self) { kw in
+                                Text(kw).font(.system(size:9)).foregroundColor(color.opacity(0.7))
+                                    .padding(.horizontal,5).padding(.vertical,2)
+                                    .background(color.opacity(0.08)).cornerRadius(8)
+                            }
+                            if kws.count>4 {
+                                Text("+\(kws.count-4)").font(.system(size:9)).foregroundColor(AppTheme.textTertiary)
+                            }
+                        }
+                    }
                     Image(systemName:isOpen ? "chevron.up":"chevron.down").font(.caption2).foregroundColor(AppTheme.textTertiary)
                 }
-                .padding(.vertical,10).padding(.horizontal,12)
-                .background(AppTheme.bg1).cornerRadius(10)
+                .padding(.vertical,10).padding(.horizontal,16)
+                .background(AppTheme.bg0)
             }
             if isOpen {
-                VStack(alignment:.leading,spacing:4) {
-                    if !kws.isEmpty { kwChips(kws) }
-                    let months = store.monthsInYear(ye.year)
-                    ForEach(months, id:\.key) { me in monthBlock(me) }
-                }.padding(.leading,12).padding(.top,4)
-                    .transition(.opacity.combined(with:.move(edge:.top)))
+                let months=store.monthsInYear(ye.year)
+                ForEach(months, id:\.key) { me in monthBlock(me) }
             }
-        }.padding(.bottom,6)
+        }
     }
 
     @ViewBuilder func monthBlock(_ me: GrowthMonthEntry) -> some View {
-        let isOpen = expandedMonths.contains(me.key)
-        let kws = kwsFor(dates: me.dates)
-        let hasKWDates = me.dates.contains(where:{ d in kwDates.contains{ Calendar.current.isDate(d,inSameDayAs:$0) } })
+        let isOpen=expandedMonths.contains(me.key)
+        let kws=kwsFor(dates:me.dates)
+        let hasKWDates=me.dates.contains(where:{ d in kwDates.contains{ Calendar.current.isDate(d,inSameDayAs:$0) } })
         if !kws.isEmpty || hasKWDates {
-            VStack(alignment:.leading,spacing:0) {
+            VStack(alignment:.leading, spacing:0) {
                 Button(action:{withAnimation(.spring(response:0.25)){
                     if isOpen { expandedMonths.remove(me.key) } else { expandedMonths.insert(me.key) }
                 }}) {
-                    HStack {
-                        Circle().fill(color.opacity(0.35)).frame(width:6,height:6)
-                        Text(me.label).font(.subheadline).foregroundColor(AppTheme.textSecondary)
+                    HStack(spacing:6) {
+                        Rectangle().fill(color.opacity(0.45)).frame(width:3,height:14).cornerRadius(2)
+                        Text(me.label).font(.system(size:13,weight:.medium)).foregroundColor(AppTheme.textSecondary)
+                        kwBadge(kws.count)
                         Spacer()
-                        countBadge(kws.count)
-                        Image(systemName:isOpen ? "chevron.up":"chevron.down").font(.caption2).foregroundColor(AppTheme.textTertiary)
+                        if !isOpen {
+                            Text(kws.prefix(3).joined(separator:" · "))
+                                .font(.system(size:10)).foregroundColor(color.opacity(0.7)).lineLimit(1)
+                        }
+                        Image(systemName:isOpen ? "chevron.up":"chevron.down").font(.system(size:10)).foregroundColor(AppTheme.textTertiary)
                     }
-                    .padding(.vertical,8).padding(.horizontal,10)
-                    .background(AppTheme.bg1.opacity(0.6)).cornerRadius(8)
+                    .padding(.vertical,8).padding(.horizontal,16)
+                    .background(AppTheme.bg1.opacity(0.7))
                 }
                 if isOpen {
-                    VStack(alignment:.leading,spacing:4) {
-                        if !kws.isEmpty { kwChips(kws) }
-                        let weeks = store.weeksInMonth(me.dates)
+                    VStack(alignment:.leading, spacing:4) {
+                        if !kws.isEmpty {
+                            FlowLayout(spacing:5) {
+                                ForEach(kws, id:\.self) { kw in
+                                    Text(kw).font(.system(size:10)).foregroundColor(color)
+                                        .padding(.horizontal,7).padding(.vertical,3)
+                                        .background(color.opacity(0.1)).cornerRadius(12)
+                                }
+                            }.padding(.horizontal,16).padding(.top,6)
+                        }
+                        let weeks=store.weeksInMonth(me.dates)
                         ForEach(weeks, id:\.key) { we in weekBlock(we) }
-                    }.padding(.leading,10).padding(.top,3)
-                        .transition(.opacity.combined(with:.move(edge:.top)))
+                    }
+                    .transition(.opacity.combined(with:.move(edge:.top)))
                 }
-            }.padding(.bottom,4)
-            } // if !kws.isEmpty
+            }
+        }
     }
 
     @ViewBuilder func weekBlock(_ we: GrowthWeekEntry) -> some View {
-        let isOpen = expandedWeeks.contains(we.key)
-        let kws = kwsFor(dates: we.dates)
-        let days = store.daysInDates(we.dates).filter { de in kwDates.contains{ Calendar.current.isDate(de.date,inSameDayAs:$0) } }
+        let isOpen=expandedWeeks.contains(we.key)
+        let kws=kwsFor(dates:we.dates)
+        let days=store.daysInDates(we.dates).filter{ de in kwDates.contains{ Calendar.current.isDate(de.date,inSameDayAs:$0) } }
         if !kws.isEmpty || !days.isEmpty {
-            VStack(alignment:.leading,spacing:0) {
+            VStack(alignment:.leading, spacing:0) {
                 Button(action:{withAnimation(.spring(response:0.22)){
                     if isOpen { expandedWeeks.remove(we.key) } else { expandedWeeks.insert(we.key) }
                 }}) {
-                    HStack {
-                        Rectangle().fill(color.opacity(0.25)).frame(width:2,height:12).cornerRadius(1)
+                    HStack(spacing:5) {
+                        Rectangle().fill(color.opacity(0.2)).frame(width:2,height:12).cornerRadius(1)
                         Text(we.label).font(.caption).foregroundColor(AppTheme.textTertiary)
+                        kwBadge(kws.count)
                         Spacer()
-                        countBadge(kws.count)
-                        Image(systemName:isOpen ? "chevron.up":"chevron.down").font(.caption2).foregroundColor(AppTheme.textTertiary)
+                        if !isOpen && !kws.isEmpty {
+                            Text(kws.prefix(2).joined(separator:" · "))
+                                .font(.system(size:9)).foregroundColor(color.opacity(0.6)).lineLimit(1)
+                        }
+                        Image(systemName:isOpen ? "chevron.up":"chevron.down").font(.system(size:9)).foregroundColor(AppTheme.textTertiary)
                     }
-                    .padding(.vertical,7).padding(.horizontal,8)
-                    .background(AppTheme.bg1.opacity(0.3)).cornerRadius(7)
+                    .padding(.vertical,6).padding(.horizontal,16)
                 }
                 if isOpen {
-                    VStack(alignment:.leading,spacing:4) {
-                        if !kws.isEmpty { kwChips(kws) }
+                    VStack(alignment:.leading, spacing:4) {
+                        if !kws.isEmpty {
+                            FlowLayout(spacing:4) {
+                                ForEach(kws, id:\.self) { kw in
+                                    Text(kw).font(.system(size:10)).foregroundColor(color)
+                                        .padding(.horizontal,6).padding(.vertical,2)
+                                        .background(color.opacity(0.1)).cornerRadius(10)
+                                }
+                            }.padding(.horizontal,16).padding(.top,4)
+                        }
                         ForEach(days, id:\.date as KeyPath<GrowthDayEntry,Date>) { de in dayRow(de) }
-                    }.padding(.leading,8).padding(.top,2)
-                        .transition(.opacity.combined(with:.move(edge:.top)))
+                    }
+                    .transition(.opacity.combined(with:.move(edge:.top)))
                 }
-            }.padding(.bottom,3)
-            } // if !kws
+            }.padding(.leading,8)
+        }
     }
 
     @ViewBuilder func dayRow(_ de: GrowthDayEntry) -> some View {
-        let kws = kwsFor(dates: [de.date])
+        let kws=kwsFor(dates:[de.date])
         if !kws.isEmpty {
-            HStack(alignment:.top,spacing:6) {
-                Text(formatDate(de.date, format: store.language == .chinese ? "M/d EEE":"EEE M/d", lang:store.language))
-                    .font(.caption2).foregroundColor(AppTheme.textTertiary).frame(width:60,alignment:.leading).padding(.top,2)
+            HStack(alignment:.top, spacing:8) {
+                Text(formatDate(de.date, format:store.language == .chinese ? "M/d EEE":"EEE M/d", lang:store.language))
+                    .font(.caption2).foregroundColor(AppTheme.textTertiary)
+                    .frame(width:58,alignment:.leading).padding(.top,3)
                 FlowLayout(spacing:4) {
-                    ForEach(kws,id:\.self) { kw in
+                    ForEach(kws, id:\.self) { kw in
                         Text(kw).font(.system(size:10)).foregroundColor(color)
                             .padding(.horizontal,6).padding(.vertical,2)
                             .background(color.opacity(0.1)).cornerRadius(10)
                     }
                 }
                 Spacer()
-                Button(action:{ openEdit(date: de.date) }) {
+                Button(action:{ openEdit(date:de.date) }) {
                     Image(systemName:"pencil").font(.system(size:10)).foregroundColor(AppTheme.textTertiary)
                         .padding(5).background(AppTheme.bg2).cornerRadius(6)
                 }
             }
-            .padding(.horizontal,7).padding(.vertical,5)
-            .background(AppTheme.accent.opacity(0.02)).cornerRadius(7)
+            .padding(.horizontal,16).padding(.vertical,4)
         }
-    }
-
-    // ── 编辑 Sheet ─────────────────────────────────────────
-    @ViewBuilder func editSheet(date: Date) -> some View {
-        NavigationView {
-            VStack(alignment:.leading,spacing:14) {
-                Text(formatDate(date, format: store.language == .chinese ? "yyyy年M月d日 EEEE":"EEEE, MMM d yyyy", lang:store.language))
-                    .font(.subheadline).foregroundColor(AppTheme.textSecondary).padding(.horizontal,16).padding(.top,8)
-
-                // 现有词条
-                FlowLayout(spacing:6) {
-                    ForEach(editKWs,id:\.self) { kw in
-                        HStack(spacing:4) {
-                            Text(kw).font(.caption).foregroundColor(color)
-                            Button(action:{
-                                editKWs.removeAll { $0 == kw }
-                                if kwType == .gain { store.replaceGainKeywords(editKWs, for:date) }
-                                else               { store.replacePlanKeywords(editKWs, for:date) }
-                            }) {
-                                Image(systemName:"xmark").font(.system(size:8,weight:.bold)).foregroundColor(color.opacity(0.6))
-                            }
-                        }
-                        .padding(.horizontal,9).padding(.vertical,5)
-                        .background(color.opacity(0.1)).cornerRadius(20)
-                        .overlay(RoundedRectangle(cornerRadius:20).stroke(color.opacity(0.3),lineWidth:1))
-                    }
-                }.padding(.horizontal,16)
-
-                // 输入框
-                HStack(spacing:8) {
-                    TextField(store.t("添加关键词，回车确认","Add keyword, press return"), text:$editInput)
-                        .font(.subheadline).foregroundColor(AppTheme.textPrimary)
-                        .focused($editFocused)
-                        .onSubmit { addEditKW(date:date) }
-                        .padding(.horizontal,12).padding(.vertical,10)
-                        .background(AppTheme.bg2).cornerRadius(10)
-                        .overlay(RoundedRectangle(cornerRadius:10).stroke(editFocused ? color.opacity(0.4):AppTheme.border1,lineWidth:1))
-                    if !editInput.isEmpty {
-                        Button(action:{addEditKW(date:date)}) {
-                            Image(systemName:"return").font(.caption).foregroundColor(color)
-                                .frame(width:36,height:36).background(color.opacity(0.12)).cornerRadius(9)
-                        }
-                    }
-                }.padding(.horizontal,16)
-
-                Spacer()
-            }
-            .background(AppTheme.bg0.ignoresSafeArea())
-            .navigationTitle(store.t(kwType == .gain ? "编辑收获":"编辑计划", kwType == .gain ? "Edit Wins":"Edit Plans"))
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement:.navigationBarTrailing) {
-                    Button(store.t("完成","Done")){ editingDate = nil }.foregroundColor(color)
-                }
-            }
-        }
-        .onAppear {
-            editKWs = kwType == .gain ? store.gainKeywords(for:date) : store.planKeywords(for:date)
-        }
-    }
-
-    func addEditKW(date: Date) {
-        let kw = editInput.trimmingCharacters(in:.whitespaces)
-        guard !kw.isEmpty, !editKWs.contains(kw) else { editInput = ""; return }
-        editKWs.append(kw)
-        if kwType == .gain { store.replaceGainKeywords(editKWs, for:date) }
-        else               { store.replacePlanKeywords(editKWs, for:date) }
-        editInput = ""
-    }
-
-    func openEdit(date: Date) {
-        editKWs = kwType == .gain ? store.gainKeywords(for:date) : store.planKeywords(for:date)
-        editingDate = date
     }
 
     func kwsFor(dates:[Date]) -> [String] {
         kwType == .gain ? store.allGainKeywords(for:dates) : store.allPlanKeywords(for:dates)
     }
 
-    @ViewBuilder func kwChips(_ kws:[String]) -> some View {
-        FlowLayout(spacing:4) {
-            ForEach(kws,id:\.self) { kw in
-                Text(kw).font(.system(size:10)).foregroundColor(color)
-                    .padding(.horizontal,7).padding(.vertical,3)
-                    .background(color.opacity(0.1)).cornerRadius(12)
+    @ViewBuilder func kwBadge(_ n:Int) -> some View {
+        if n>0 {
+            Text("\(n)").font(.system(size:9,weight:.semibold)).foregroundColor(color)
+                .padding(.horizontal,5).padding(.vertical,2)
+                .background(color.opacity(0.12)).cornerRadius(6)
+        }
+    }
+
+    func openEdit(date:Date) {
+        editKWs = kwType == .gain ? store.gainKeywords(for:date) : store.planKeywords(for:date)
+        editingDate = date
+    }
+
+    @ViewBuilder func editSheet(date:Date) -> some View {
+        NavigationView {
+            VStack(alignment:.leading, spacing:12) {
+                Text(formatDate(date, format:store.language == .chinese ? "yyyy年M月d日":"MMM d, yyyy", lang:store.language))
+                    .font(.caption).foregroundColor(AppTheme.textTertiary).padding(.horizontal,16)
+                FlowLayout(spacing:8) {
+                    ForEach(editKWs, id:\.self) { kw in
+                        HStack(spacing:4) {
+                            Text(kw).font(.system(size:12)).foregroundColor(color)
+                            Button(action:{ editKWs.removeAll{$0==kw} }) {
+                                Image(systemName:"xmark").font(.system(size:9)).foregroundColor(AppTheme.textTertiary)
+                            }
+                        }
+                        .padding(.horizontal,8).padding(.vertical,4).background(color.opacity(0.1)).cornerRadius(12)
+                    }
+                }.padding(.horizontal,16)
+                HStack {
+                    TextField(store.t("新增关键词","New keyword"), text:$editInput)
+                        .focused($editFocused).font(.system(size:14))
+                        .padding(10).background(AppTheme.bg2).cornerRadius(10)
+                    Button(action:{
+                        let kw=editInput.trimmingCharacters(in:.whitespaces)
+                        if !kw.isEmpty && !editKWs.contains(kw) { editKWs.append(kw) }
+                        editInput=""
+                    }) {
+                        Image(systemName:"plus.circle.fill").font(.system(size:20)).foregroundColor(color)
+                    }
+                }.padding(.horizontal,16)
+                Spacer()
+            }
+            .padding(.top,16)
+            .navigationTitle(store.t(kwType == .gain ? "编辑收获":"编辑计划",
+                                     kwType == .gain ? "Edit Wins":"Edit Plans"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement:.cancellationAction){ Button(store.t("取消","Cancel")){ editingDate=nil } }
+                ToolbarItem(placement:.confirmationAction){
+                    Button(store.t("保存","Save")){
+                        if kwType == .gain { store.replaceGainKeywords(editKWs, for:date) }
+                        else               { store.replacePlanKeywords(editKWs, for:date) }
+                        editingDate=nil
+                    }.fontWeight(.semibold)
+                }
             }
         }
-        .padding(.vertical,4)
+        .presentationDetents([.medium])
     }
+}
 
-    @ViewBuilder func countBadge(_ n:Int) -> some View {
-        if n > 0 {
-            Text("\(n)").font(.system(size:9)).foregroundColor(color)
-                .padding(.horizontal,6).padding(.vertical,2)
-                .background(color.opacity(0.1)).cornerRadius(8)
+
+// ============================================================
+// MARK: - SmartSummarySheet（提交心得/总结后弹出，日/周/月/年）
+// ============================================================
+
+struct SummaryContext {
+    let periodType: Int        // -1=日  0=周  1=月  2=年
+    let periodLabel: String    // 用于 smartSummary(type:label:dates:)
+    let dates: [Date]
+    let sheetTitle: String
+
+    static func forDay(_ date: Date, store: AppStore) -> SummaryContext {
+        let isCN = store.language == .chinese
+        let fmt = DateFormatter()
+        fmt.locale = Locale(identifier: isCN ? "zh_CN" : "en_US")
+        fmt.dateFormat = isCN ? "M月d日" : "MMM d"
+        return SummaryContext(
+            periodType: -1,
+            periodLabel: fmt.string(from: date),
+            dates: [date],
+            sheetTitle: isCN ? "今日智能总结" : "Today's Summary"
+        )
+    }
+    static func forWeek(label: String, dates: [Date], store: AppStore) -> SummaryContext {
+        SummaryContext(periodType:0, periodLabel:label, dates:dates,
+                       sheetTitle: store.language == .chinese ? "本周智能总结" : "Weekly Summary")
+    }
+    static func forMonth(label: String, dates: [Date], store: AppStore) -> SummaryContext {
+        SummaryContext(periodType:1, periodLabel:label, dates:dates,
+                       sheetTitle: store.language == .chinese ? "本月智能总结" : "Monthly Summary")
+    }
+    static func forYear(label: String, dates: [Date], store: AppStore) -> SummaryContext {
+        SummaryContext(periodType:2, periodLabel:label, dates:dates,
+                       sheetTitle: store.language == .chinese ? "年度智能总结" : "Annual Summary")
+    }
+}
+
+struct SmartSummarySheet: View {
+    @EnvironmentObject var store: AppStore
+    @EnvironmentObject var pro: ProStore
+    @Environment(\.dismiss) var dismiss
+    let ctx: SummaryContext
+
+    // ── 数据 ────────────────────────────────────────────────
+    var completionPct: Int { Int(store.avgCompletion(for:ctx.dates) * 100) }
+    var mood: Double { store.avgMood(for:ctx.dates) }
+    var moodEmoji: String {
+        mood >= 4.5 ? "🔥" : mood >= 3.5 ? "😊" : mood >= 2.5 ? "🙂" : mood >= 1.5 ? "😐" : mood > 0 ? "😔" : ""
+    }
+    var taskStats: (done:Int, total:Int) {
+        var d = 0; var t = 0
+        for date in ctx.dates {
+            let tasks = store.goals(for:date).flatMap{ store.tasks(for:date, goal:$0) }
+            t += tasks.count
+            d += tasks.filter{ store.progress(for:date, taskId:$0.id) >= 1.0 }.count
         }
+        return (d, t)
+    }
+    var challengeState: (active:[String], resolved:[String]) {
+        if ctx.periodType == -1, let d = ctx.dates.first {
+            let s = store.dailyChallengeState(for:d); return (s.active, s.resolved)
+        }
+        return store.periodChallengeState(dates:ctx.dates)
+    }
+    var gainKW:  [String] { store.allGainKeywords(for:ctx.dates) }
+    var planKW:  [String] { store.allPlanKeywords(for:ctx.dates) }
+    var insight: String   { store.smartSummary(type:max(0,ctx.periodType), label:ctx.periodLabel, dates:ctx.dates) }
+
+    // Palette
+    let accentGreen  = Color(red:0.28, green:0.78, blue:0.60)
+    let accentPurple = Color(red:0.60, green:0.50, blue:0.90)
+
+    var body: some View {
+        NavigationView {
+            ScrollView(showsIndicators:false) {
+                VStack(spacing:14) {
+
+                    // ── 心情 + 完成率 Hero ──────────────────
+                    HStack(spacing:16) {
+                        // 心情
+                        VStack(spacing:4) {
+                            Text(moodEmoji.isEmpty ? "—" : moodEmoji)
+                                .font(.system(size:36))
+                            Text(store.t("心情","Mood"))
+                                .font(.system(size:10)).foregroundColor(AppTheme.textTertiary)
+                            if mood > 0 {
+                                Text(String(format:"%.1f/5", mood))
+                                    .font(.system(size:12, weight:.medium, design:.rounded))
+                                    .foregroundColor(AppTheme.accent)
+                            }
+                        }
+                        .frame(maxWidth:.infinity)
+                        .padding(.vertical,14)
+                        .background(AppTheme.bg1)
+                        .cornerRadius(14)
+                        .overlay(RoundedRectangle(cornerRadius:14).stroke(AppTheme.border0, lineWidth:1))
+
+                        // 完成率
+                        VStack(spacing:4) {
+                            Text("\(completionPct)%")
+                                .font(.system(size:28, weight:.light, design:.rounded))
+                                .foregroundColor(completionPct >= 80 ? accentGreen :
+                                                 completionPct >= 50 ? AppTheme.accent : AppTheme.gold)
+                            Text(store.t("完成率","Done"))
+                                .font(.system(size:10)).foregroundColor(AppTheme.textTertiary)
+                            Text(completionPct >= 80 ? "🏆" : completionPct >= 60 ? "✨" : completionPct > 0 ? "💪" : "—")
+                                .font(.system(size:12))
+                        }
+                        .frame(maxWidth:.infinity)
+                        .padding(.vertical,14)
+                        .background(AppTheme.bg1)
+                        .cornerRadius(14)
+                        .overlay(RoundedRectangle(cornerRadius:14).stroke(AppTheme.border0, lineWidth:1))
+                    }
+                    .padding(.horizontal,16)
+
+                    // ── 6格核心指标 ─────────────────────────
+                    let ts = taskStats
+                    let cs = challengeState
+                    VStack(spacing:0) {
+                        HStack(spacing:0) {
+                            statCell("\(ts.done)/\(ts.total)", store.t("任务","Tasks"), AppTheme.accent)
+                            statDivider
+                            statCell("\(cs.active.count)", store.t("待决","Pending"),
+                                     cs.active.isEmpty ? accentGreen : AppTheme.gold)
+                            statDivider
+                            statCell("\(cs.resolved.count)", store.t("已解决","Resolved"), accentGreen)
+                        }
+                        Divider().background(AppTheme.border0.opacity(0.5)).padding(.horizontal,8)
+                        HStack(spacing:0) {
+                            statCell("\(gainKW.count)", store.t("收获","Wins"), accentGreen)
+                            statDivider
+                            statCell("\(planKW.count)", store.t("计划","Plans"), accentPurple)
+                            statDivider
+                            let activeDays = ctx.dates.filter{ store.completionRate(for:$0) > 0 }.count
+                            statCell(ctx.dates.count <= 1 ? "—" : "\(activeDays)",
+                                     store.t("活跃天","Active"), AppTheme.textSecondary)
+                        }
+                    }
+                    .background(AppTheme.bg1)
+                    .cornerRadius(14)
+                    .overlay(RoundedRectangle(cornerRadius:14).stroke(AppTheme.border0, lineWidth:1))
+                    .padding(.horizontal,16)
+
+                    // ── 收获词云 ────────────────────────────
+                    if !gainKW.isEmpty { kwPanel(accentGreen, "star.fill", store.t("收获","Wins"), gainKW) }
+
+                    // ── 计划词云 ────────────────────────────
+                    if !planKW.isEmpty { kwPanel(accentPurple, "arrow.right.circle.fill", store.t("计划","Plans"), planKW) }
+
+                    // ── 智能洞察 ────────────────────────────
+                    VStack(alignment:.leading, spacing:10) {
+                        HStack(spacing:6) {
+                            Image(systemName:"sparkles")
+                                .font(.system(size:11, weight:.medium))
+                                .foregroundColor(AppTheme.accent)
+                            Text(store.t("智能洞察","Smart Insight"))
+                                .font(.system(size:12, weight:.semibold))
+                                .foregroundColor(AppTheme.accent)
+                            Spacer()
+                            // Pro API 入口标记 — 订阅版接 AI
+                            Text("AI")
+                                .font(.system(size:9, weight:.bold))
+                                .foregroundColor(pro.isPro ? .white : AppTheme.textTertiary)
+                                .padding(.horizontal,6).padding(.vertical,2)
+                                .background(pro.isPro ? AppTheme.accent : AppTheme.bg3)
+                                .cornerRadius(4)
+                        }
+
+                        Text(insight)
+                            .font(.system(size:12, weight:.light))
+                            .foregroundColor(AppTheme.textSecondary)
+                            .lineSpacing(4)
+                            .fixedSize(horizontal:false, vertical:true)
+
+                        if !pro.isPro {
+                            // 免费版引导升级 Pro 获得 AI 建议
+                            Button(action:{ pro.showPaywall = true }) {
+                                HStack(spacing:5) {
+                                    Image(systemName:"crown.fill")
+                                        .font(.system(size:10))
+                                    Text(store.t("升级 Pro 获得 AI 个性化建议","Upgrade Pro for AI insights"))
+                                        .font(.system(size:11, weight:.medium))
+                                }
+                                .foregroundColor(AppTheme.gold)
+                                .padding(.horizontal,12).padding(.vertical,7)
+                                .frame(maxWidth:.infinity)
+                                .background(AppTheme.gold.opacity(0.1))
+                                .cornerRadius(10)
+                                .overlay(RoundedRectangle(cornerRadius:10)
+                                    .stroke(AppTheme.gold.opacity(0.25), lineWidth:1))
+                            }
+                            .padding(.top,4)
+                        }
+                        // TODO(Pro-AI): When pro.isPro, replace insight text with AI response:
+                        // Task: call store.generateAISummary(ctx, apiKey: store.proAPIKey)
+                        // Signature: func generateAISummary(periodType:Int, label:String,
+                        //   dates:[Date], completion:Double, mood:Double,
+                        //   gainKW:[String], planKW:[String],
+                        //   challengeActive:[String], challengeResolved:Int,
+                        //   taskDone:Int, taskTotal:Int) async throws -> String
+                        // Model: claude-sonnet-4-6 (fast) or claude-opus-4-6 (deep)
+                    }
+                    .padding(14)
+                    .background(AppTheme.bg1)
+                    .cornerRadius(14)
+                    .overlay(RoundedRectangle(cornerRadius:14)
+                        .stroke(AppTheme.accent.opacity(0.15), lineWidth:1))
+                    .padding(.horizontal,16)
+
+                    Color.clear.frame(height:16)
+                }
+                .padding(.top,8)
+            }
+            .background(AppTheme.bg0.ignoresSafeArea())
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(ctx.sheetTitle)
+            .toolbar {
+                ToolbarItem(placement:.navigationBarTrailing) {
+                    Button(store.t("完成","Done")) { dismiss() }
+                        .foregroundColor(AppTheme.accent).fontWeight(.medium)
+                }
+            }
+        }
+        .presentationDetents([.fraction(0.85), .large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(24)
+    }
+
+    @ViewBuilder var statDivider: some View {
+        Rectangle().fill(AppTheme.border0.opacity(0.6))
+            .frame(width:0.5).padding(.vertical,8)
+    }
+
+    @ViewBuilder func statCell(_ val:String, _ lbl:String, _ col:Color) -> some View {
+        VStack(spacing:3) {
+            Text(val)
+                .font(.system(size:17, weight:.light, design:.rounded))
+                .foregroundColor(col).monospacedDigit()
+            Text(lbl)
+                .font(.system(size:9)).foregroundColor(AppTheme.textTertiary)
+        }
+        .frame(maxWidth:.infinity).padding(.vertical,11)
+    }
+
+    @ViewBuilder func kwPanel(_ col:Color, _ icon:String, _ lbl:String, _ kws:[String]) -> some View {
+        VStack(alignment:.leading, spacing:8) {
+            HStack(spacing:5) {
+                Image(systemName:icon).font(.system(size:9)).foregroundColor(col)
+                Text("\(lbl) · \(kws.count)")
+                    .font(.system(size:11, weight:.semibold)).foregroundColor(col)
+            }
+            FlowLayout(spacing:5) {
+                ForEach(kws.prefix(24), id:\.self) { kw in
+                    Text(kw).font(.system(size:11))
+                        .foregroundColor(col)
+                        .padding(.horizontal,8).padding(.vertical,4)
+                        .background(col.opacity(0.1)).cornerRadius(20)
+                }
+                if kws.count > 24 {
+                    Text("+\(kws.count-24)").font(.system(size:10))
+                        .foregroundColor(AppTheme.textTertiary)
+                }
+            }
+        }
+        .padding(12)
+        .background(AppTheme.bg1)
+        .cornerRadius(14)
+        .overlay(RoundedRectangle(cornerRadius:14).stroke(col.opacity(0.15), lineWidth:1))
+        .padding(.horizontal,16)
     }
 }
-
-// ── 空状态占位 ──────────────────────────────────────────────
-@ViewBuilder func emptyPlaceholder(icon:String, msg:String) -> some View {
-    VStack(spacing:12) {
-        Image(systemName:icon).font(.largeTitle).foregroundColor(AppTheme.textTertiary.opacity(0.4))
-        Text(msg).font(.subheadline).foregroundColor(AppTheme.textTertiary)
-    }
-    .frame(maxWidth:.infinity).padding(.vertical,60)
-}
-
-
 
 struct JournalEntryCard: View {
     let entry:DayReview;@EnvironmentObject var store:AppStore
