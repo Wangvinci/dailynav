@@ -2,13 +2,9 @@ import SwiftUI
 import Combine
 
 // ============================================================
-// MARK: - 语言
+// MARK: - 语言  (AppLanguage is defined in L10n.swift)
 // ============================================================
-
-enum AppLanguage: String, CaseIterable {
-    case chinese = "zh"; case english = "en"
-    var displayName: String { self == .chinese ? "中文" : "English" }
-}
+// AppLanguage: zh / en / ja / ko / es — all localization in L10n.swift
 
 // ============================================================
 // MARK: - Pro 订阅系统
@@ -191,57 +187,68 @@ struct Achievement: Identifiable {
 
 struct AppTheme {
     // ═══════════════════════════════════════════════════════════
-    // DESIGN SYSTEM v3  —  Monet Luminist Palette
-    // Philosophy: Giverny dawn light — misted ivory, pond green,
-    //   willow shadow, lotus blush. Quiet depth, never harsh.
-    //   Reference: Water Lilies 1906-1926, Impression Sunrise.
+    // DESIGN SYSTEM v4  —  Cyber·Monet  「赛博·莫奈」
+    // Philosophy: Giverny garden seen through a neural lens.
+    //   Dark silicon base, watercolour pigment accents.
+    //   Glass has depth. Neon has restraint. Typography breathes.
+    //   Reference: Water Lilies + Ghost in the Shell + Blade Runner 2049
     // ═══════════════════════════════════════════════════════════
 
-    // ── 背景：晨雾烟灰，莫奈水面底调 ──
-    // bg0: #1A1C1E  深烟炭，接近水面阴影
-    static let bg0 = Color(red:0.102, green:0.110, blue:0.118)
-    // bg1: #242729  卡片底，芦苇茎灰
-    static let bg1 = Color(red:0.141, green:0.153, blue:0.161)
-    // bg2: #2E3235  次层，雾中柳影
-    static let bg2 = Color(red:0.180, green:0.196, blue:0.208)
-    // bg3: #383D41  高亮/hover，池水微涟
-    static let bg3 = Color(red:0.220, green:0.239, blue:0.255)
+    // ── 背景层：深宇宙，带极微蓝调 ──────────────────────────
+    // bg0: #0F1117  近黑，深宇宙底
+    static let bg0 = Color(red:0.059, green:0.067, blue:0.090)
+    // bg1: #181D27  卡片底，深夜硅基
+    static let bg1 = Color(red:0.094, green:0.114, blue:0.153)
+    // bg2: #1F2535  次层面板
+    static let bg2 = Color(red:0.122, green:0.145, blue:0.208)
+    // bg3: #2A3248  hover / 选中态
+    static let bg3 = Color(red:0.165, green:0.196, blue:0.282)
 
-    // ── 边框：烟光极淡 ──
-    static let border0 = Color.white.opacity(0.060)
-    static let border1 = Color.white.opacity(0.110)
-    static let borderGlow = Color(red:0.600, green:0.820, blue:0.740).opacity(0.20)
+    // ── 边框：发光玻璃边缘 ────────────────────────────────────
+    static let border0    = Color.white.opacity(0.055)               // 静止态极淡
+    static let border1    = Color.white.opacity(0.110)               // 焦点态
+    static let borderGlow = Color(red:0.400, green:0.860, blue:0.720).opacity(0.22)  // 接近碰撞发光
 
-    // ── 文字：暖象牙系，莫奈油彩感 ──
-    static let textPrimary   = Color(red:0.930, green:0.920, blue:0.900)  // 暖象牙白
-    static let textSecondary = Color(red:0.640, green:0.640, blue:0.620)  // 雾中灰绿
-    static let textTertiary  = Color(red:0.380, green:0.390, blue:0.380)  // 苔藓深灰
+    // ── 文字：冷象牙，带电气感 ───────────────────────────────
+    static let textPrimary   = Color(red:0.920, green:0.930, blue:0.945)  // 冷白象牙
+    static let textSecondary = Color(red:0.580, green:0.620, blue:0.680)  // 金属灰蓝
+    static let textTertiary  = Color(red:0.320, green:0.360, blue:0.420)  // 深宇宙灰
 
-    // ── 主调：莫奈荷叶绿 — 饱和但雅，非荧光 ──
-    // Inspired by "Water Lilies" reed-green reflections
-    static let accent      = Color(red:0.420, green:0.740, blue:0.650)   // #6BBDA5 荷影绿
-    static let accentSoft  = Color(red:0.420, green:0.740, blue:0.650).opacity(0.12)
-    static let accentGlow  = Color(red:0.420, green:0.740, blue:0.650).opacity(0.06)
+    // ── 主调：莫奈荷叶绿·赛博化 — 提亮0.05，更有发光感 ──────
+    static let accent      = Color(red:0.380, green:0.820, blue:0.700)   // #61D1B3 电光荷影
+    static let accentSoft  = Color(red:0.380, green:0.820, blue:0.700).opacity(0.12)
+    static let accentGlow  = Color(red:0.380, green:0.820, blue:0.700).opacity(0.18)
+    // 赛博蓝 — 次要强调色
+    static let cyberBlue   = Color(red:0.200, green:0.620, blue:1.000)   // #33_9EFF 霓虹蓝
+    static let cyberPurple = Color(red:0.560, green:0.380, blue:0.980)   // 极光紫
+    // 莫奈雾紫·赛博混血
+    static let monetMauve  = Color(red:0.720, green:0.480, blue:0.820)   // 发光紫藤
 
-    // ── 目标调色板：莫奈色系六色 ──
-    // Water Lilies · Impression Sunrise · Rouen Cathedral · Haystacks
+    // ── 目标调色板：赛博·莫奈 六色 ─────────────────────────
+    // 更亮、更发光、依然协调
     static let palette: [Color] = [
-        Color(red:0.420, green:0.740, blue:0.650),   // 荷影绿    Waterlily Green
-        Color(red:0.500, green:0.650, blue:0.820),   // 晨雾蓝    Morning Mist Blue
-        Color(red:0.750, green:0.580, blue:0.780),   // 紫藤紫    Wisteria Mauve
-        Color(red:0.870, green:0.640, blue:0.420),   // 晚霞橙    Sunset Amber
-        Color(red:0.840, green:0.520, blue:0.560),   // 莲花粉    Lotus Blush
-        Color(red:0.560, green:0.720, blue:0.590),   // 苔草绿    Reed Meadow
+        Color(red:0.380, green:0.820, blue:0.700),   // 电光荷影  Cyber Waterlily
+        Color(red:0.380, green:0.660, blue:1.000),   // 霓虹水蓝  Neon Azure
+        Color(red:0.700, green:0.480, blue:0.980),   // 极光紫    Aurora Violet
+        Color(red:0.980, green:0.700, blue:0.360),   // 钛金橙    Titanium Amber
+        Color(red:0.960, green:0.520, blue:0.620),   // 玫瑰霓虹  Rose Neon
+        Color(red:0.420, green:0.860, blue:0.560),   // 苔草电绿  Moss Electric
     ]
 
-    // ── 语义色：莫奈自然调 ──
-    static let gold    = Color(red:0.890, green:0.750, blue:0.440)  // 麦秆金
-    static let danger  = Color(red:0.820, green:0.380, blue:0.380)  // 暗玫瑰红
-    static let success = Color(red:0.440, green:0.730, blue:0.540)  // 嫩芽绿
+    // ── 语义色 ────────────────────────────────────────────────
+    static let gold    = Color(red:0.980, green:0.820, blue:0.380)  // 钛金黄
+    static let danger  = Color(red:0.960, green:0.380, blue:0.420)  // 警戒红
+    static let success = Color(red:0.380, green:0.900, blue:0.560)  // 确认绿
 
-    // ── 渐变辅助 ──
-    static let gradientTop    = Color(red:0.420, green:0.740, blue:0.650).opacity(0.07)
+    // ── 渐变辅助 ──────────────────────────────────────────────
+    static let gradientTop    = Color(red:0.380, green:0.820, blue:0.700).opacity(0.10)
     static let gradientBottom = Color.clear
+
+    // ── 扫描线 & 玻璃质感辅助 ────────────────────────────────
+    static let scanlineOpacity: Double = 0.028     // 扫描线透明度（极克制）
+    static let glassBase:   Double = 0.22          // glass fill base opacity
+    static let glassBorder: Double = 0.11          // glass border opacity
+    static let neonGlow:    Double = 0.35          // neon glow max opacity
 }
 
 extension Color {
@@ -260,22 +267,11 @@ extension Color {
 
 class AppStore: ObservableObject {
 
-    @Published var goals: [Goal] = [
-        Goal(title:"每天健身", category:"健康", color:AppTheme.palette[0],
-             goalType:.longterm, startDate:Calendar.current.date(byAdding:.day,value:-15,to:Date())!,
-             endDate:nil, tasks:[
-                GoalTask(title:"早晨跑步",  estimatedMinutes:30),
-                GoalTask(title:"核心训练",  estimatedMinutes:20),
-                GoalTask(title:"拉伸放松")]),
-        Goal(title:"读完10本书", category:"学习", color:AppTheme.palette[3],
-             goalType:.deadline, startDate:Date(),
-             endDate:Calendar.current.date(from:DateComponents(year:2026,month:12,day:31)),
-             tasks:[GoalTask(title:"阅读",estimatedMinutes:30),GoalTask(title:"读书笔记")]),
-        Goal(title:"学会基础西班牙语", category:"技能", color:AppTheme.palette[4],
-             goalType:.deadline, startDate:Date(),
-             endDate:Calendar.current.date(from:DateComponents(year:2026,month:9,day:30)),
-             tasks:[GoalTask(title:"Duolingo",estimatedMinutes:15),GoalTask(title:"听播客",estimatedMinutes:20)])
-    ]
+    init() {
+        initDefaultGoals()
+    }
+
+    @Published var goals: [Goal] = []  // populated by initDefaultGoals() on first launch
 
     @Published var dailyRecords:  [DailyRecord]      = []
     @Published var planOverrides: [PlanTaskOverride]  = []
@@ -284,7 +280,21 @@ class AppStore: ObservableObject {
     @Published var dayReviews:    [DayReview]         = []
     @Published var periodSummaries: [PeriodSummary]   = []
     @Published var dailyChallenges: [DailyChallengeEntry] = []  // 跨天困难追踪
-    @Published var language:      AppLanguage         = .chinese
+    @Published var language: AppLanguage = .chinese {
+        didSet {
+            logCurrentLocale()  // [DEBUG] prints to console
+            // Re-seed default goals if user hasn't modified them
+            // (detected by: goal count == 3 and all titles come from default list)
+            let prevDefaults = SuggestionProvider.defaultGoals(oldValue).map(\.title)
+            let currentTitles = goals.map(\.title)
+            let isDefaultSet = currentTitles.count == prevDefaults.count &&
+                               currentTitles.allSatisfy { prevDefaults.contains($0) }
+            if isDefaultSet {
+                goals = []
+                initDefaultGoals()
+            }
+        }
+    }
     @Published var userBirthYear: Int                 = 0
     @Published var simulatedDate: Date?               = nil  // 调试用：nil = 使用真实今日
 
@@ -293,34 +303,40 @@ class AppStore: ObservableObject {
 
     func t(_ zh: String, _ en: String) -> String { language == .chinese ? zh : en }
 
-    /// 按当前语言填充示例目标（首次启动时调用）
+    /// Strongly-typed L10n lookup — called from @MainActor Views (safe)
+    func t(key: (AppLanguage) -> String) -> String { key(language) }
+
+    /// Debug: prints locale/language/sample to console for verification
+    func logCurrentLocale() {
+        let sample = SuggestionProvider.defaultGoals(language).first?.title ?? "(none)"
+        print("[L10n] lang=\(language.rawValue) | locale=\(language.localeIdentifier) | firstGoal='\(sample)'")
+    }
+
+    /// 按当前语言填充示例目标（首次启动时调用）—— 语言正确性由 SuggestionProvider 保证
     func initDefaultGoals() {
         guard goals.isEmpty else { return }
-        let isCN = language == .chinese
-        goals = [
-            Goal(title: isCN ? "每天健身" : "Daily Workout",
-                 category: isCN ? "健康" : "Health",
-                 color: AppTheme.palette[0], goalType:.longterm,
-                 startDate: Calendar.current.date(byAdding:.day, value:-15, to:Date())!,
-                 endDate: nil,
-                 tasks:[GoalTask(title: isCN ? "早晨跑步" : "Morning Run", estimatedMinutes:30),
-                        GoalTask(title: isCN ? "核心训练" : "Core Training", estimatedMinutes:20),
-                        GoalTask(title: isCN ? "拉伸放松" : "Stretch")]),
-            Goal(title: isCN ? "读完10本书" : "Read 10 Books",
-                 category: isCN ? "学习" : "Learning",
-                 color: AppTheme.palette[3], goalType:.deadline,
-                 startDate: Date(),
-                 endDate: Calendar.current.date(from:DateComponents(year:2026, month:12, day:31)),
-                 tasks:[GoalTask(title: isCN ? "阅读" : "Reading", estimatedMinutes:30),
-                        GoalTask(title: isCN ? "读书笔记" : "Book Notes")]),
-            Goal(title: isCN ? "学会基础西班牙语" : "Learn Basic Spanish",
-                 category: isCN ? "技能" : "Skills",
-                 color: AppTheme.palette[4], goalType:.deadline,
-                 startDate: Date(),
-                 endDate: Calendar.current.date(from:DateComponents(year:2026, month:9, day:30)),
-                 tasks:[GoalTask(title: "Duolingo", estimatedMinutes:15),
-                        GoalTask(title: isCN ? "听播客" : "Podcast", estimatedMinutes:20)])
+        logCurrentLocale()   // 打印当前语言到控制台（可用于验证）
+        let defaults = SuggestionProvider.defaultGoals(language)
+        let colors = [AppTheme.palette[0], AppTheme.palette[3], AppTheme.palette[4]]
+        let types: [GoalType] = [.longterm, .deadline, .deadline]
+        let ends: [Date?] = [
+            nil,
+            Calendar.current.date(from:DateComponents(year:2026, month:12, day:31)),
+            Calendar.current.date(from:DateComponents(year:2026, month:9, day:30))
         ]
+        let starts: [Date] = [
+            Calendar.current.date(byAdding:.day, value:-15, to:Date())!,
+            Date(), Date()
+        ]
+        goals = defaults.enumerated().map { (i, d) in
+            Goal(title: d.title,
+                 category: d.category,
+                 color: colors[min(i, colors.count-1)],
+                 goalType: types[min(i, types.count-1)],
+                 startDate: starts[min(i, starts.count-1)],
+                 endDate: ends[min(i, ends.count-1)],
+                 tasks: d.tasks.map { GoalTask(title:$0) })
+        }
     }
 
     // ── 计算年龄（供 AI 分析用）──────────────────────────────
@@ -942,28 +958,13 @@ class AppStore: ObservableObject {
         }
         kw = (aggGains, baseChallenges, aggPlans)
 
+        // ── Use SuggestionProvider for language-correct output ──
         var parts: [String] = []
-        if isCN {
-            if avg >= 0.8 { parts.append("完成率 \(Int(avg*100))%，非常出色 🏆") }
-            else if avg >= 0.6 { parts.append("完成率 \(Int(avg*100))%，节奏稳定 ✨") }
-            else if avg >= 0.3 { parts.append("完成率 \(Int(avg*100))%，有所推进 💪") }
-            else if activeDays > 0 { parts.append("🌱 \(activeDays)天有记录，在坚持中") }
-            else { parts.append("🌙 尚无记录") }
-            if mood > 0 { parts.append("\(moodEmoji) 平均心情 \(String(format:"%.1f",mood))/5") }
-            if !kw.gains.isEmpty { parts.append("💡 收获：\(kw.gains.prefix(5).joined(separator:" · "))") }
-            if !kw.challenges.isEmpty { parts.append("🔧 困难：\(kw.challenges.prefix(5).joined(separator:" · "))") }
-            if !kw.nexts.isEmpty { parts.append("🎯 计划：\(kw.nexts.prefix(5).joined(separator:" · "))") }
-        } else {
-            if avg >= 0.8 { parts.append("Completion \(Int(avg*100))% — excellent 🏆") }
-            else if avg >= 0.6 { parts.append("Completion \(Int(avg*100))% — steady ✨") }
-            else if avg >= 0.3 { parts.append("Completion \(Int(avg*100))% — progressing 💪") }
-            else if activeDays > 0 { parts.append("🌱 \(activeDays) active days") }
-            else { parts.append("🌙 No records yet") }
-            if mood > 0 { parts.append("\(moodEmoji) Avg mood \(String(format:"%.1f",mood))/5") }
-            if !kw.gains.isEmpty { parts.append("💡 Wins: \(kw.gains.prefix(5).joined(separator:" · "))") }
-            if !kw.challenges.isEmpty { parts.append("🔧 Challenges: \(kw.challenges.prefix(5).joined(separator:" · "))") }
-            if !kw.nexts.isEmpty { parts.append("🎯 Next: \(kw.nexts.prefix(5).joined(separator:" · "))") }
-        }
+        parts.append(SuggestionProvider.summaryCompletion(
+            Int(avg*100), activeDays:activeDays, mood:mood, moodEmoji:moodEmoji, l:language))
+        if !kw.gains.isEmpty      { parts.append(SuggestionProvider.summaryWins(kw.gains, l:language)) }
+        if !kw.challenges.isEmpty { parts.append(SuggestionProvider.summaryChallenges(kw.challenges, l:language)) }
+        if !kw.nexts.isEmpty      { parts.append(SuggestionProvider.summaryPlans(kw.nexts, l:language)) }
         return parts.joined(separator: "\n")
     }
 
@@ -1732,7 +1733,8 @@ class AppStore: ObservableObject {
         var poolMatches: [String] = []
         for pool in pools {
             if pool.kw.contains(where:{ lower.contains($0) || cat.contains($0) }) {
-                let suggestions = isCN ? pool.zh : pool.en
+                // Chinese/Japanese/Korean use zh pool; others use en pool
+                let suggestions = (language == .chinese || language == .japanese || language == .korean) ? pool.zh : pool.en
                 poolMatches.append(contentsOf: suggestions.filter { !existing.contains($0) })
             }
         }
@@ -1749,12 +1751,10 @@ class AppStore: ObservableObject {
         // C 模板填空（补充到最多8条）
         let templatesFiltered = templates.filter { !result.contains($0) }
         result.append(contentsOf: templatesFiltered.prefix(max(0, 8 - result.count)))
-        // 如果全部都空，用通用兜底
+        // 如果全部都空，用 SuggestionProvider 多语言兜底
         if result.isEmpty {
-            let fallback = isCN
-                ? ["记录今日进展","明确今日优先级","专注25分钟","回顾目标动力","与昨日对比进步","写下今天的收获"]
-                : ["Log today's progress","Set today's priority","Focus 25 minutes","Review your motivation","Compare vs yesterday","Write today's takeaway"]
-            result = fallback.filter { !existing.contains($0) }
+            result = SuggestionProvider.fallbackTaskSuggestions(language)
+                .filter { !existing.contains($0) }
         }
         // 每次调用 shuffle，让「刷新」有新鲜感
         return Array(result.shuffled().prefix(8))

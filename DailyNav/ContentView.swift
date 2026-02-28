@@ -14,15 +14,15 @@ struct ContentView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             GoalsView()
-                .tabItem { Image(systemName:"target"); Text(store.t("目标","Goals")) }.tag(0)
+                .tabItem { Image(systemName:"target"); Text(store.t(key: L10n.goals)) }.tag(0)
             TodayView()
                 .tabItem { Image(systemName:selectedTab==1 ? "checkmark.circle.fill":"checkmark.circle"); Text(store.t("今日","Today")) }.tag(1)
             PlanView()
-                .tabItem { Image(systemName:selectedTab==2 ? "calendar.badge.plus":"calendar"); Text(store.t("计划","Plan")) }.tag(2)
+                .tabItem { Image(systemName:selectedTab==2 ? "calendar.badge.plus":"calendar"); Text(store.t(key: L10n.plan)) }.tag(2)
             StatsView()
-                .tabItem { Image(systemName:selectedTab==3 ? "chart.bar.fill":"chart.bar"); Text(store.t("我的","Me")) }.tag(3)
+                .tabItem { Image(systemName:selectedTab==3 ? "chart.bar.fill":"chart.bar"); Text(store.t(key: L10n.myPage)) }.tag(3)
             InspireView()
-                .tabItem { Image(systemName:"sparkles"); Text(store.t("灵感","Inspire")) }.tag(4)
+                .tabItem { Image(systemName:"sparkles"); Text(store.t(key: L10n.inspire)) }.tag(4)
         }
         .tint(AppTheme.accent)
         .preferredColorScheme(.dark)
@@ -99,6 +99,12 @@ struct FoldCardFrameKey: PreferenceKey {
     }
 }
 
+// Tracks scroll offset of the goals list to drive calendar pinch
+struct GoalsScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
 struct GoalsView: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var pro: ProStore
@@ -124,9 +130,11 @@ struct GoalsView: View {
 
     func checkEdgeFlip(pos: CGPoint) {
         guard isDragging, !calendarFrame.isEmpty else { return }
-        let edge: CGFloat = 56
-        let inLeft  = pos.x < calendarFrame.minX + edge && pos.y > calendarFrame.minY && pos.y < calendarFrame.maxY
-        let inRight = pos.x > calendarFrame.maxX - edge && pos.y > calendarFrame.minY && pos.y < calendarFrame.maxY
+        let edge: CGFloat = 80                          // 56→80: wider trigger band
+        let yTop    = calendarFrame.minY - 60           // extend 60pt above (includes header row)
+        let yBottom = calendarFrame.maxY + 10           // slight bottom tolerance
+        let inLeft  = pos.x < calendarFrame.minX + edge && pos.y > yTop && pos.y < yBottom
+        let inRight = pos.x > calendarFrame.maxX - edge && pos.y > yTop && pos.y < yBottom
 
         if inLeft || inRight {
             let dir = inLeft ? -1 : 1
@@ -138,7 +146,7 @@ struct GoalsView: View {
             }
             guard monthFlipTimer == nil && edgeFlipAccumTimer == nil else { return }
             // Smoothly fill progress bar over 0.7s, then flip with crossfade
-            let totalDuration: Double = 0.70
+            let totalDuration: Double = 0.50          // 0.70→0.50: faster flip trigger
             let tickInterval: Double = 1.0/30.0
             let ticks = Int(totalDuration / tickInterval)
             var tick = 0
@@ -233,19 +241,25 @@ struct GoalsView: View {
         .padding(.vertical, vPad)
         .background(
             ZStack {
-                // Material layer
+                // Glass base
                 RoundedRectangle(cornerRadius:corner).fill(.ultraThinMaterial)
-                // Tinted bg — opacity baked into Color, not chained on Shape
+                RoundedRectangle(cornerRadius:corner).fill(AppTheme.bg0.opacity(Double(bgAlpha) * 0.88))
+                // Specular sheen
                 RoundedRectangle(cornerRadius:corner)
-                    .fill(AppTheme.bg1.opacity(Double(bgAlpha)))
+                    .fill(LinearGradient(
+                        colors: [Color.white.opacity(0.06), Color.clear],
+                        startPoint: .topLeading, endPoint: .center
+                    ))
             }
         )
         .clipShape(RoundedRectangle(cornerRadius:corner))
         .overlay(
             RoundedRectangle(cornerRadius:corner)
-                .strokeBorder(goal.color.opacity(Double(strokeAlpha)), lineWidth:1)
+                .strokeBorder(goal.color.opacity(Double(strokeAlpha) * 1.1), lineWidth:1.0)
         )
-        .shadow(color:goal.color.opacity(0.28), radius:shadowR, x:0, y:shadowY)
+        // Double neon glow: inner tight + outer diffuse
+        .shadow(color:goal.color.opacity(0.45), radius:4, x:0, y:0)
+        .shadow(color:goal.color.opacity(0.22), radius:shadowR, x:0, y:shadowY)
         .fixedSize()
         .position(
             x: pos.x - containerFrame.minX,
@@ -269,12 +283,13 @@ struct GoalsView: View {
 
     func checkVerticalAutoScroll(pos: CGPoint) {
         guard isDragging else { return }
-        let topEdge: CGFloat = 220  // 距顶部触发向上滚动（日历粘性高度约180）
+        // Use dynamic calendarCurrentH + a little buffer
+        let topEdge: CGFloat = calendarCurrentH + 40
         if pos.y < topEdge {
             guard autoScrollTimer == nil else { return }
-            autoScrollTimer = Timer.scheduledTimer(withTimeInterval:0.05, repeats:true) { _ in
-                withAnimation(.linear(duration:0.05)) {
-                    goalsScrollProxy?.scrollTo("goals_top", anchor:.top)
+            autoScrollTimer = Timer.scheduledTimer(withTimeInterval: 0.04, repeats: true) { _ in
+                withAnimation(.linear(duration: 0.04)) {
+                    self.goalsScrollProxy?.scrollTo("goals_top", anchor: .top)
                 }
             }
         } else {
@@ -282,188 +297,335 @@ struct GoalsView: View {
         }
     }
 
-    // 日历全高约 280，最小收起高度（只留末2行+星期头）约 100
-
-    @State private var calendarCollapsed = false
-    @State private var calendarShrinkOffset: CGFloat = 0   // 用户向上拖动的像素偏移
-    let calendarMaxShrink: CGFloat = 80                    // 最大收起量
+    // ── Bilibili-style calendar pinch state ──────────────────
+    // calendarPinch: 0=full calendar, 1=collapsed to slim strip
+    // Driven by ScrollView content offset — no separate drag handle needed
+    @State private var calendarPinch: CGFloat = 0
+    // Height constants
+    let calendarFullH:  CGFloat = 196   // compact — saves ~40pt for goals
+    let calendarSlimH:  CGFloat = 44    // slim strip: month/nav only
+    var calendarCurrentH: CGFloat {
+        calendarFullH + (calendarSlimH - calendarFullH) * calendarPinch
+    }
+    // For sticky layout: content needs a top-padding spacer
+    var contentTopPad: CGFloat { calendarCurrentH }
 
     @ViewBuilder var goalsMainContent: some View {
-        VStack(spacing:0) {
-            // ── 日历区：固定顶部，不随列表滚动 ─────────────
-            VStack(spacing:0) {
-                // 月份导航居中 + 收起按钮右上角覆盖
-                ZStack(alignment:.trailing) {
-                    // 月份选择器：真正居中于整行
-                    MonthYearPicker(currentMonth:$currentMonth)
-                    // 折叠按钮：固定右侧，不占 picker 宽度
-                    Button(action:{
-                        withAnimation(.spring(response:0.32, dampingFraction:0.82)){
-                            calendarCollapsed.toggle()
-                        }
-                    }) {
-                        ZStack {
-                            Circle()
-                                .fill(calendarCollapsed ? AppTheme.accent.opacity(0.15) : AppTheme.bg2)
-                                .frame(width:32, height:32)
-                            Image(systemName: calendarCollapsed ? "chevron.down" : "chevron.up")
-                                .font(.system(size:11, weight:.semibold))
-                                .foregroundColor(calendarCollapsed ? AppTheme.accent : AppTheme.textSecondary)
-                        }
-                    }
-                    .padding(.trailing, 16)
-                }
-                .padding(.horizontal,0).padding(.top,8).padding(.bottom,2)
+        GeometryReader { rootGeo in
+            ZStack(alignment: .top) {
 
-                if !calendarCollapsed {
-                    CalendarGrid(
-                        currentMonth:currentMonth, selectedDate:$selectedDate,
-                        selectedGoalId:selectedGoalId, store:store,
-                        draggingGoalId:draggingGoalId,
-                        onDropGoal:{ id,date in
-                            let todayStart = Calendar.current.startOfDay(for:store.today)
-                            let target = Calendar.current.startOfDay(for:date)
-                            if target >= todayStart { store.setGoalDeadline(id,to:date) }
-                            monthFlipTimer?.invalidate(); monthFlipTimer=nil
-                            autoScrollTimer?.invalidate(); autoScrollTimer=nil
-                            stopDragMorph(); draggingGoalId=nil; isDragging=false; goalDragPos = .zero
-                        },
-                        dragScreenPos: goalDragPos
-                    )
-                    .padding(.horizontal,12).padding(.top,2).padding(.bottom,6)
-                    // 向上收起偏移：底部裁切，保留顶部内容
-                    .padding(.bottom, -calendarShrinkOffset)
-                    .clipped()
-                    .background(GeometryReader{ cGeo in
-                        Color.clear.onAppear{ calendarFrame=cGeo.frame(in:.global) }
-                    })
-                    .transition(.opacity.combined(with:.move(edge:.top)))
+                // ── LAYER A: Scrollable content (goals sit inside) ──
+                ScrollView(.vertical, showsIndicators: false) {
+                    ZStack(alignment: .top) {
+                        // Offset anchor — at the very top of the scroll content
+                        GeometryReader { anchorGeo in
+                            Color.clear.preference(
+                                key: GoalsScrollOffsetKey.self,
+                                value: anchorGeo.frame(in: .named("goalsPage")).minY
+                            )
+                        }
+                        .frame(height: 0)
 
-                    if isDragging {
-                        ZStack {
-                            HStack(spacing:5){
-                                Image(systemName:"calendar.badge.checkmark").font(.caption2)
-                                Text(store.t("拖到日期可设为截止日","Drag to a date to set deadline"))
-                                    .font(.caption2)
-                            }
-                            .foregroundColor(AppTheme.accent)
-                            // Edge flip progress indicators
-                            if edgeFlipProgress > 0 {
-                                HStack {
-                                    if edgeFlipDirection < 0 {
-                                        HStack(spacing:3) {
-                                            Image(systemName:"chevron.left")
-                                                .font(.system(size:9, weight:.semibold))
-                                                .foregroundColor(AppTheme.accent.opacity(0.5 + edgeFlipProgress * 0.5))
-                                            // slim progress bar
-                                            Capsule()
-                                                .fill(AppTheme.accent.opacity(edgeFlipProgress * 0.7))
-                                                .frame(width:24 * edgeFlipProgress, height:2)
-                                        }
-                                    }
-                                    Spacer()
-                                    if edgeFlipDirection > 0 {
-                                        HStack(spacing:3) {
-                                            Capsule()
-                                                .fill(AppTheme.accent.opacity(edgeFlipProgress * 0.7))
-                                                .frame(width:24 * edgeFlipProgress, height:2)
-                                            Image(systemName:"chevron.right")
-                                                .font(.system(size:9, weight:.semibold))
-                                                .foregroundColor(AppTheme.accent.opacity(0.5 + edgeFlipProgress * 0.5))
-                                        }
-                                    }
-                                }
-                                .padding(.horizontal, 14)
-                            }
-                        }
-                        .frame(height:18)
-                        .padding(.bottom,4)
-                        .transition(.opacity)
-                    }
-                }
-            }
-            // 左右滑动切换月份（仅在日历展开时生效）
-            .gesture(
-                calendarCollapsed ? nil :
-                DragGesture(minimumDistance:44, coordinateSpace:.local)
-                    .onEnded { v in
-                        guard abs(v.translation.width) > abs(v.translation.height) * 1.5 else { return }
-                        let cal = Calendar.current
-                        withAnimation(.spring(response:0.28)){
-                            if v.translation.width < 0 {
-                                if let n = cal.date(byAdding:.month,value:1,to:currentMonth){ currentMonth=n }
-                            } else {
-                                if let p = cal.date(byAdding:.month,value:-1,to:currentMonth){ currentMonth=p }
-                            }
-                        }
-                    }
-            )
-            .background(AppTheme.bg1)
-            .shadow(color:Color.black.opacity(0.08), radius:5, x:0, y:2)
-
-            // ── 可拖拽的分割条 ─────────────────────────────
-            ZStack {
-                Divider().background(AppTheme.border0)
-                // Drag handle — subtle pill
-                Capsule()
-                    .fill(AppTheme.textTertiary.opacity(0.25))
-                    .frame(width:32, height:3)
-            }
-            .frame(height:10)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance:2)
-                    .onChanged { v in
-                        let newOffset = calendarShrinkOffset - v.translation.height
-                        withAnimation(.interactiveSpring(response:0.25, dampingFraction:0.85)) {
-                            calendarShrinkOffset = min(calendarMaxShrink, max(0, newOffset))
-                        }
-                    }
-                    .onEnded { v in
-                        // Snap to either 0 or maxShrink based on velocity/position
-                        let velocity = -v.predictedEndTranslation.height
-                        withAnimation(.spring(response:0.35, dampingFraction:0.8)) {
-                            if velocity > 80 || calendarShrinkOffset > calendarMaxShrink * 0.5 {
-                                calendarShrinkOffset = calendarMaxShrink
-                            } else {
-                                calendarShrinkOffset = 0
-                            }
-                        }
-                    }
-            )
-
-            // ── 目标列表：独立滚动区 ─────────────────────────
-            ZStack(alignment:.top) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing:0) {
-                            Color.clear.frame(height:1).id("goals_top")
+                        // Dynamic spacer matching current calendar height
+                        VStack(spacing: 0) {
+                            Color.clear.frame(height: contentTopPad + 8)
                             goalsListSection
                         }
                     }
-                    .onAppear { goalsScrollProxy = proxy }
                 }
+                .coordinateSpace(name: "goalsPage")
+                .onPreferenceChange(GoalsScrollOffsetKey.self) { rawOffset in
+                    // rawOffset starts at 0 and goes negative as user scrolls DOWN
+                    // CRITICAL guards: never collapse during goal drag or reorder
+                    guard !isDragging, !isReordering else { return }
+                    let scrolled = max(0, -rawOffset)
+                    // Collapse starts at 50pt scroll, completes at 150pt — smooth range
+                    let trigger: CGFloat = 50
+                    let range:   CGFloat = 120
+                    let pinch = max(0, min(1, (scrolled - trigger) / range))
+                    // Hysteresis: only animate if change is meaningful (avoids micro-jitter)
+                    if abs(pinch - calendarPinch) > 0.01 {
+                        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.90)) {
+                            calendarPinch = pinch
+                        }
+                    }
+                }
+
+                // ── LAYER B: Calendar sticky header (always on top) ──
+                calendarHeaderView
+                    .frame(height: calendarCurrentH, alignment: .top)
+                    .clipped()
+                    .background(
+                        ZStack {
+                            // Deep silicon base
+                            Rectangle().fill(AppTheme.bg0)
+                            // Ultra-thin material film (intensifies when collapsed)
+                            Rectangle()
+                                .fill(.ultraThinMaterial)
+                                .opacity(AppTheme.glassBase + calendarPinch * 0.30)
+                            // Diagonal specular sheen — top-left micro-highlight
+                            Rectangle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color.white.opacity(0.040), Color.clear],
+                                        startPoint: .topLeading, endPoint: .center
+                                    )
+                                )
+                            // Neon top edge line — thicker & brighter when expanded
+                            VStack(spacing: 0) {
+                                LinearGradient(
+                                    colors: [
+                                        Color.clear,
+                                        AppTheme.accent.opacity(0.55 - calendarPinch * 0.30),
+                                        AppTheme.cyberBlue.opacity(0.20 - calendarPinch * 0.10),
+                                        Color.clear
+                                    ],
+                                    startPoint: .leading, endPoint: .trailing
+                                )
+                                .frame(height: 1.0)
+                                Spacer()
+                            }
+                            // Scan-line texture — adds depth, removes plastic feel
+                            ScanlineOverlay(cornerRadius: 0)
+                                .opacity(AppTheme.scanlineOpacity * (1.0 - calendarPinch * 0.5))
+                        }
+                    )
+                    .shadow(
+                        color: AppTheme.accent.opacity(0.06 + calendarPinch * 0.04),
+                        radius: 10, x: 0, y: 4
+                    )
+                    .shadow(
+                        color: .black.opacity(0.30 + calendarPinch * 0.12),
+                        radius: 16, x: 0, y: 6
+                    )
+                    .zIndex(100)
+
+                // ── LAYER C: Floating goal drag pill ──
                 floatingGoalCard.zIndex(999)
             }
+            .onAppear { goalsScreenHeight = rootGeo.size.height }
         }
     }
 
+    // ── Calendar header: cyber·monet glass panel ─────────────
+    @ViewBuilder var calendarHeaderView: some View {
+        let isCollapsed = calendarPinch > 0.88
+        let gridOpacity = max(0, 1.0 - calendarPinch * 2.5)
+
+        VStack(spacing: 0) {
+            // ─────────────────────────────────────────────────
+            // Row 1: Month nav bar — compact 44pt tall
+            // [‹]  [MONTH  ˅]  [›]  [↑/↓]
+            // ─────────────────────────────────────────────────
+            HStack(spacing: 0) {
+                // ‹ Prev
+                Button {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.80)) {
+                        if let p = Calendar.current.date(byAdding: .month, value: -1, to: currentMonth) { currentMonth = p }
+                    }
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(AppTheme.textSecondary.opacity(0.65))
+                        .frame(width: 38, height: 44)
+                        .contentShape(Rectangle())
+                }
+
+                Spacer()
+
+                // Month + year — tap for wheel picker
+                MonthYearPicker(currentMonth: $currentMonth)
+                    .frame(maxWidth: 200)
+
+                Spacer()
+
+                // › Next
+                Button {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.80)) {
+                        if let n = Calendar.current.date(byAdding: .month, value: 1, to: currentMonth) { currentMonth = n }
+                    }
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(AppTheme.textSecondary.opacity(0.65))
+                        .frame(width: 38, height: 44)
+                        .contentShape(Rectangle())
+                }
+
+                // Collapse toggle — neon pill
+                Button {
+                    withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+                        calendarPinch = isCollapsed ? 0 : 1
+                    }
+                } label: {
+                    ZStack {
+                        Capsule()
+                            .fill(isCollapsed ? AppTheme.accent.opacity(0.18) : Color.white.opacity(0.04))
+                            .frame(width: 24, height: 18)
+                            .overlay(
+                                Capsule()
+                                    .stroke(
+                                        isCollapsed ? AppTheme.accent.opacity(0.45) : Color.white.opacity(0.08),
+                                        lineWidth: 0.6
+                                    )
+                            )
+                        Image(systemName: isCollapsed ? "chevron.down" : "chevron.up")
+                            .font(.system(size: 7, weight: .medium))
+                            .foregroundColor(isCollapsed ? AppTheme.accent : AppTheme.textTertiary.opacity(0.6))
+                    }
+                }
+                .padding(.trailing, 14)
+            }
+            .frame(height: 44)
+
+            // Neon divider line — changes opacity based on collapse state
+            if calendarPinch < 0.98 {
+                Rectangle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.clear,
+                                AppTheme.accent.opacity(0.08 + calendarPinch * 0.04),
+                                AppTheme.accent.opacity(0.18 + calendarPinch * 0.06),
+                                AppTheme.accent.opacity(0.08 + calendarPinch * 0.04),
+                                Color.clear
+                            ],
+                            startPoint: .leading, endPoint: .trailing
+                        )
+                    )
+                    .frame(height: 0.5)
+                    .opacity(1.0 - calendarPinch * 0.8)
+            }
+
+            // ─────────────────────────────────────────────────
+            // Row 2: Calendar grid — fades as collapsed
+            // ─────────────────────────────────────────────────
+            if calendarPinch < 0.98 {
+                ZStack {
+                    CalendarGrid(
+                        currentMonth: currentMonth,
+                        selectedDate: $selectedDate,
+                        selectedGoalId: selectedGoalId,
+                        store: store,
+                        draggingGoalId: draggingGoalId,
+                        onDropGoal: { id, date in
+                            let todayStart = Calendar.current.startOfDay(for: store.today)
+                            let target     = Calendar.current.startOfDay(for: date)
+                            if target >= todayStart { store.setGoalDeadline(id, to: date) }
+                            monthFlipTimer?.invalidate(); monthFlipTimer = nil
+                            autoScrollTimer?.invalidate(); autoScrollTimer = nil
+                            stopDragMorph()
+                            draggingGoalId = nil; isDragging = false; goalDragPos = .zero
+                        },
+                        dragScreenPos: goalDragPos
+                    )
+                    .background(
+                        GeometryReader { cGeo in
+                            Color.clear
+                                .onAppear  { calendarFrame = cGeo.frame(in: .global) }
+                                .onChange(of: cGeo.frame(in: .global)) { _, newFrame in calendarFrame = newFrame }
+                        }
+                    )
+                    .opacity(gridOpacity)
+
+                    // Drag-to-date hint + month flip indicators
+                    if isDragging {
+                        VStack {
+                            Spacer()
+                            HStack(spacing: 4) {
+                                if edgeFlipProgress > 0 && edgeFlipDirection < 0 {
+                                    HStack(spacing: 2) {
+                                        Image(systemName: "chevron.left")
+                                            .font(.system(size: 7, weight: .bold))
+                                        Capsule()
+                                            .fill(AppTheme.accent)
+                                            .frame(width: 16 * edgeFlipProgress, height: 1.5)
+                                    }
+                                    .foregroundColor(AppTheme.accent.opacity(0.55 + edgeFlipProgress * 0.45))
+                                }
+                                Image(systemName: "calendar.badge.checkmark").font(.system(size: 9))
+                                Text(store.t(key: L10n.dragToDate))
+                                    .font(.system(size: 9.5, weight: .regular, design: .rounded))
+                                if edgeFlipProgress > 0 && edgeFlipDirection > 0 {
+                                    HStack(spacing: 2) {
+                                        Capsule()
+                                            .fill(AppTheme.accent)
+                                            .frame(width: 16 * edgeFlipProgress, height: 1.5)
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 7, weight: .bold))
+                                    }
+                                    .foregroundColor(AppTheme.accent.opacity(0.55 + edgeFlipProgress * 0.45))
+                                }
+                            }
+                            .foregroundColor(AppTheme.accent.opacity(0.80))
+                            .padding(.bottom, 4)
+                        }
+                        .transition(.opacity)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.top, 2)
+                .padding(.bottom, 4)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        // Swipe left/right to change month (only when not dragging a goal)
+        .gesture(
+            DragGesture(minimumDistance: 40, coordinateSpace: .local)
+                .onEnded { v in
+                    guard !isDragging else { return }
+                    guard abs(v.translation.width) > abs(v.translation.height) * 1.5 else { return }
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                        if v.translation.width < 0 {
+                            if let n = Calendar.current.date(byAdding: .month, value: 1, to: currentMonth) { currentMonth = n }
+                        } else {
+                            if let p = Calendar.current.date(byAdding: .month, value: -1, to: currentMonth) { currentMonth = p }
+                        }
+                    }
+                }
+        )
+    }
 
     @ViewBuilder var goalsListSection: some View {
         let atLimit = !pro.isPro && store.goals.count >= ProStore.freeGoalLimit
-        Button(action:{
-            if atLimit { pro.showPaywall=true } else { showingAddGoal=true }
+        Button(action: {
+            if atLimit { pro.showPaywall = true } else { showingAddGoal = true }
         }) {
-            HStack(spacing:6) {
-                Image(systemName: atLimit ? "lock.fill":"plus").font(.system(size:12,weight:.light))
-                Text(atLimit ? store.t("已达3个目标上限，升级 Pro","Goal limit reached · Upgrade Pro") : store.t("添加新目标","Add New Goal"))
-                    .font(.system(size:14,weight:.light))
+            HStack(spacing: 6) {
+                Image(systemName: atLimit ? "lock.fill" : "plus")
+                    .font(.system(size: 10, weight: .medium))
+                Text(atLimit
+                    ? store.t("已达上限  ·  升级 Pro", "Limit reached · Upgrade Pro")
+                    : store.t("添加目标", "Add Goal"))
+                    .font(.system(size: 11.5, weight: .regular, design: .rounded))
+                    .tracking(0.8)
             }
-            .foregroundColor(atLimit ? AppTheme.gold : AppTheme.textTertiary.opacity(0.8))
-            .frame(maxWidth:.infinity).padding(.vertical,16)
-            .background(AppTheme.bg1).cornerRadius(16)
-            .overlay(RoundedRectangle(cornerRadius:16).stroke(atLimit ? AppTheme.gold.opacity(0.25):AppTheme.border0,lineWidth:1))
-        }.padding(.horizontal).padding(.top,12)
+            .foregroundColor(atLimit ? AppTheme.gold.opacity(0.80) : AppTheme.accent.opacity(0.60))
+            .shadow(color: atLimit ? AppTheme.gold.opacity(0.20) : AppTheme.accent.opacity(0.25), radius: 4)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 11)
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: 11)
+                        .fill(AppTheme.bg1)
+                    RoundedRectangle(cornerRadius: 11)
+                        .fill(.ultraThinMaterial).opacity(0.12)
+                    RoundedRectangle(cornerRadius: 11)
+                        .fill(atLimit ? AppTheme.gold.opacity(0.05) : AppTheme.accent.opacity(0.04))
+                    // Dashed neon border drawn via stroke (no separate overlay needed)
+                }
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 11))
+            .overlay(
+                RoundedRectangle(cornerRadius: 11)
+                    .stroke(
+                        atLimit ? AppTheme.gold.opacity(0.25) : AppTheme.accent.opacity(0.22),
+                        style: StrokeStyle(lineWidth: 0.7, dash: [4, 3])
+                    )
+            )
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
         if let date=selectedDate { goalDaySection(date:date) }
     }
 
@@ -481,7 +643,9 @@ struct GoalsView: View {
         VStack(alignment:.leading,spacing:0) {
             HStack {
                 Text(formatDate(date,format:store.language == .chinese ? "M月d日 EEEE":"EEE, MMM d",lang:store.language))
-                    .font(.subheadline).foregroundColor(AppTheme.textSecondary)
+                    .font(.system(size: 12, weight: .regular, design: .rounded))
+                    .foregroundColor(AppTheme.textSecondary.opacity(0.70))
+                    .tracking(0.3)
                 Spacer()
                 // 排序按钮（紧靠目标区块）
                 Button(action:{
@@ -490,7 +654,7 @@ struct GoalsView: View {
                     HStack(spacing:3) {
                         Image(systemName: isReordering ? "checkmark.circle.fill" : "arrow.up.arrow.down")
                             .font(.system(size:10))
-                        Text(isReordering ? store.t("完成","Done") : store.t("排序","Sort"))
+                        Text(isReordering ? store.t(key: L10n.done) : store.t(key: L10n.sort))
                             .font(.system(size:11))
                     }
                     .foregroundColor(isReordering ? AppTheme.accent : AppTheme.textTertiary)
@@ -500,8 +664,8 @@ struct GoalsView: View {
                     .animation(.spring(response:0.28), value:isReordering)
                 }
                 Text(store.t("\(ordered.count) 个目标","\(ordered.count) goals"))
-                    .font(.caption).foregroundColor(AppTheme.textTertiary)
-            }.padding(.horizontal).padding(.top,14).padding(.bottom,8)
+                    .font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
+            }.padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 5)
             if ordered.isEmpty {
                 Text(store.t("这天暂无目标","No goals for this day"))
                     .font(.subheadline).foregroundColor(AppTheme.textTertiary)
@@ -648,7 +812,7 @@ struct GoalsView: View {
                         // 普通模式无长按排序，避免手势冲突影响滑动
                     )
                     .id(goal.id)
-                    .padding(.horizontal).padding(.bottom,8)
+                    .padding(.horizontal, 12).padding(.bottom, 5)
                     .scaleEffect(selectedGoalId != nil && selectedGoalId != goal.id ? 0.97 : 1.0)
                     .animation(.spring(response:0.3), value:selectedGoalId)
                     .transition(.asymmetric(
@@ -737,7 +901,7 @@ struct GoalsView: View {
                     .onAppear { goalsScreenHeight = geo.size.height }
             }
             .background(AppTheme.bg0.ignoresSafeArea())
-            .navigationTitle(store.t("目标","Goals")).navigationBarTitleDisplayMode(.large)
+            .navigationTitle(store.t(key: L10n.goals)).navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement:.navigationBarTrailing) {
                     Button(action:{
@@ -780,70 +944,43 @@ struct MonthYearPicker: View {
     @State private var showingPicker = false
 
     var displayString: String {
-        let f=DateFormatter()
-        f.dateFormat = store.language == .chinese ? "yyyy年 M月":"MMMM yyyy"
-        f.locale=Locale(identifier:store.language == .chinese ? "zh_CN":"en_US")
-        return f.string(from:currentMonth)
+        let f = DateFormatter()
+        switch store.language {
+        case .chinese, .japanese, .korean: f.dateFormat = "yyyy年 M月"
+        case .english, .spanish:           f.dateFormat = "MMMM yyyy"
+        }
+        f.locale = Locale(identifier: store.language.localeIdentifier)
+        return f.string(from: currentMonth)
     }
-
-    @State private var dragOffset: CGFloat = 0
-    @State private var isDragActive = false
 
     var body: some View {
-        VStack(spacing:0) {
-            HStack {
-                Button(action:{withAnimation(.spring(response:0.35)){shift(-1)}}){
-                    Image(systemName:"chevron.left")
-                        .font(.system(size:13, weight:.medium))
-                        .foregroundColor(AppTheme.textSecondary)
-                        .frame(width:36, height:36)
-                }
-                Spacer()
-                Button(action:{withAnimation(.spring(response:0.3)){showingPicker.toggle()}}) {
-                    HStack(spacing:4) {
-                        Text(displayString)
-                            .font(.system(size:15, weight:.medium))
-                            .foregroundColor(AppTheme.textPrimary)
-                            .offset(x: dragOffset * 0.3)
-                        Image(systemName:showingPicker ? "chevron.up":"chevron.down")
-                            .font(.system(size:10, weight:.medium))
-                            .foregroundColor(AppTheme.textTertiary)
-                    }
-                }
-                Spacer()
-                Button(action:{withAnimation(.spring(response:0.35)){shift(1)}}){
-                    Image(systemName:"chevron.right")
-                        .font(.system(size:13, weight:.medium))
-                        .foregroundColor(AppTheme.textSecondary)
-                        .frame(width:36, height:36)
+        VStack(spacing: 0) {
+            Button(action: { withAnimation(.spring(response: 0.26)) { showingPicker.toggle() } }) {
+                HStack(spacing: 5) {
+                    Text(displayString)
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundColor(AppTheme.textPrimary.opacity(0.88))
+                        .tracking(0.2)
+                        // Subtle neon glow on the month text — signature Cyber·Monet touch
+                        .shadow(color: AppTheme.accent.opacity(0.18), radius: 4, x: 0, y: 0)
+                    Image(systemName: showingPicker ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundColor(AppTheme.accent.opacity(0.50))
+                        .shadow(color: AppTheme.accent.opacity(0.25), radius: 2, x: 0, y: 0)
                 }
             }
-            .frame(maxWidth:.infinity)
+
             if showingPicker {
-                YearMonthWheelPicker(currentMonth:$currentMonth,onDismiss:{showingPicker=false})
-                    .padding(.top,8).transition(.move(edge:.top).combined(with:.opacity))
+                YearMonthWheelPicker(currentMonth: $currentMonth, onDismiss: { showingPicker = false })
+                    .padding(.top, 6)
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .animation(.spring(response:0.35),value:showingPicker)
-        .gesture(
-            DragGesture(minimumDistance:20)
-                .onChanged { v in
-                    guard !showingPicker else { return }
-                    dragOffset = v.translation.width
-                }
-                .onEnded { v in
-                    guard !showingPicker else { dragOffset=0; return }
-                    let threshold: CGFloat = 60
-                    if v.translation.width < -threshold {
-                        withAnimation(.spring(response:0.35, dampingFraction:0.82)) { shift(1) }
-                    } else if v.translation.width > threshold {
-                        withAnimation(.spring(response:0.35, dampingFraction:0.82)) { shift(-1) }
-                    }
-                    withAnimation(.spring(response:0.3)) { dragOffset = 0 }
-                }
-        )
+        .animation(.spring(response: 0.28), value: showingPicker)
     }
-    func shift(_ d:Int){ if let n=Calendar.current.date(byAdding:.month,value:d,to:currentMonth){currentMonth=n} }
+    func shift(_ d: Int) {
+        if let n = Calendar.current.date(byAdding: .month, value: d, to: currentMonth) { currentMonth = n }
+    }
 }
 
 struct YearMonthWheelPicker: View {
@@ -860,10 +997,10 @@ struct YearMonthWheelPicker: View {
     var body: some View {
         VStack(spacing:10){
             HStack(spacing:0){
-                Picker("",selection:$sy){ ForEach(2024...2035,id:\.self){ Text(store.language == .chinese ? "\($0)年":"\($0)").tag($0) } }.pickerStyle(.wheel).frame(maxWidth:.infinity).clipped()
-                Picker("",selection:$sm){ ForEach(1...12,id:\.self){ m in Text(store.language == .chinese ? "\(m)月":Calendar.current.monthSymbols[m-1]).tag(m) } }.pickerStyle(.wheel).frame(maxWidth:.infinity).clipped()
+                Picker("",selection:$sy){ ForEach(2024...2035,id:\.self){ Text(store.language == .chinese || store.language == .japanese || store.language == .korean ? "\($0)年":"\($0)").tag($0) } }.pickerStyle(.wheel).frame(maxWidth:.infinity).clipped()
+                Picker("",selection:$sm){ ForEach(1...12,id:\.self){ m in Text(store.language == .chinese || store.language == .japanese || store.language == .korean ? "\(m)月":Calendar.current.monthSymbols[m-1]).tag(m) } }.pickerStyle(.wheel).frame(maxWidth:.infinity).clipped()
             }.frame(height:120)
-            Button(store.t("确认","Confirm")){
+            Button(store.t(key: L10n.confirm)){
                 var c=DateComponents();c.year=sy;c.month=sm;c.day=1
                 if let d=Calendar.current.date(from:c){currentMonth=d}
                 onDismiss()
@@ -881,8 +1018,8 @@ struct CalendarGrid: View {
     /// Screen-space position of the drag label (for proximity animation)
     var dragScreenPos: CGPoint = .zero
     @EnvironmentObject var storeEnv:AppStore
-    let cols=Array(repeating:GridItem(.flexible(),spacing:2),count:7)
-    var weekdays:[String]{ storeEnv.language == .chinese ? ["日","一","二","三","四","五","六"]:["Su","Mo","Tu","We","Th","Fr","Sa"] }
+    let cols=Array(repeating:GridItem(.flexible(),spacing:1),count:7)
+    var weekdays:[String]{ L10n.weekdayShort(storeEnv.language) }
     var days:[Date?]{
         let cal=Calendar.current
         let first=cal.date(from:cal.dateComponents([.year,.month],from:currentMonth))!
@@ -904,9 +1041,30 @@ struct CalendarGrid: View {
         return covering[0].color.opacity(0.85)
     }
     var body: some View {
-        VStack(spacing:4){
-            HStack(spacing:0){ ForEach(weekdays,id:\.self){ Text($0).font(.caption2).foregroundColor(AppTheme.textTertiary).frame(maxWidth:.infinity) } }.padding(.bottom,4)
-            LazyVGrid(columns:cols,spacing:4){
+        VStack(spacing:2){
+            HStack(spacing:0) {
+                ForEach(Array(zip(weekdays.indices, weekdays)), id:\.0) { idx, day in
+                    let isTodayCol: Bool = {
+                        let cal = Calendar.current
+                        let todayWeekday = cal.component(.weekday, from: Date()) - 1
+                        return idx == todayWeekday
+                    }()
+                    Text(day)
+                        .font(.system(size: 10, weight: isTodayCol ? .medium : .regular, design: .rounded))
+                        .foregroundColor(
+                            isTodayCol
+                                ? AppTheme.accent.opacity(0.75)
+                                : AppTheme.textTertiary.opacity(0.55)
+                        )
+                        .shadow(
+                            color: isTodayCol ? AppTheme.accent.opacity(0.30) : .clear,
+                            radius: 3, x: 0, y: 0
+                        )
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.bottom, 2)
+            LazyVGrid(columns:cols,spacing:2){
                 ForEach(days.indices,id:\.self){ i in
                     if let date=days[i]{
                         let hasSelectedGoal: Bool = {
@@ -942,8 +1100,8 @@ struct CalendarGrid: View {
                             .scaleEffect(scaleBoost)
                             .animation(.spring(response:0.28, dampingFraction:0.62), value:scaleBoost)
                         }
-                        .frame(height:40)
-                    } else { Color.clear.frame(height:40) }
+                        .frame(height:28)
+                    } else { Color.clear.frame(height:28) }
                 }
             }
         }
@@ -963,66 +1121,86 @@ struct CalendarDayCell: View {
     var isDroppable:Bool { isDragging && !isPast }  // today or future
 
     var body: some View {
-        Button(action:{
+        Button(action: {
             if isDroppable || !isDragging { onTap() }
-        }){
-            VStack(spacing:3){
+        }) {
+            VStack(spacing: 2) {
                 Text("\(day)")
-                    .font(.system(size:13, weight: isToday ? .semibold : .regular))
+                    .font(.system(
+                        size: isToday ? 12 : 11,
+                        weight: isToday ? .semibold : .regular,
+                        design: .rounded
+                    ))
                     .foregroundColor(
-                        // During drag: text darkens (becomes more primary) as proximity increases
-                        // No circles — pure scale + color
                         (isSelected && isToday) ? AppTheme.bg0 :
-                        isSelected            ? AppTheme.accent :
-                        isToday               ? AppTheme.accent :
-                        (isDragging && isPast) ? AppTheme.textTertiary.opacity(0.25) :
-                        isDragging ? AppTheme.textPrimary.opacity(0.4 + dragProximity * 0.6) :
-                        AppTheme.textPrimary
+                        isSelected              ? AppTheme.accent :
+                        isToday                 ? AppTheme.accent :
+                        (isDragging && isPast)  ? AppTheme.textTertiary.opacity(0.22) :
+                        isDragging ? AppTheme.textPrimary.opacity(0.38 + dragProximity * 0.62) :
+                        AppTheme.textPrimary.opacity(0.82)
                     )
-                    .fontWeight(isDragging && dragProximity > 0.4 && !isSelected ? .semibold : (isToday ? .semibold : .regular))
-                    .frame(width:28, height:28)
+                    .fontWeight(isDragging && dragProximity > 0.45 && !isSelected ? .medium : nil)
+                    .frame(width: 26, height: 26)
                     .background(
                         ZStack {
-                            // Selection / today background only — NO circles during drag
-                            Circle().fill(
-                                isToday && isSelected ? AppTheme.accent :
-                                isSelected            ? AppTheme.accent.opacity(0.22) :
-                                Color.clear
-                            )
-                            // Closest target during drag: very subtle inner glow only
-                            if isDroppable && !isSelected && !isToday && dragProximity > 0.7 {
+                            // Selected fill — neon solid for today, glassy tint otherwise
+                            if isToday && isSelected {
                                 Circle()
-                                    .fill(AppTheme.accent.opacity(dragProximity * 0.12))
+                                    .fill(AppTheme.accent)
+                                    .shadow(color: AppTheme.accent.opacity(0.55), radius: 5, x: 0, y: 0)
+                            } else if isSelected {
+                                Circle()
+                                    .fill(AppTheme.accent.opacity(0.20))
+                                    .overlay(Circle().stroke(AppTheme.accent.opacity(0.55), lineWidth: 0.8))
+                            }
+                            // Drag proximity magnetic glow
+                            if isDroppable && !isSelected && dragProximity > 0.40 {
+                                Circle()
+                                    .fill(AppTheme.accent.opacity(dragProximity * 0.18))
+                                    .shadow(color: AppTheme.accent.opacity(dragProximity * 0.35), radius: 4)
                             }
                         }
                     )
                     .overlay(
-                        Group {
+                        ZStack {
                             if isToday && !isSelected {
-                                Circle().stroke(AppTheme.accent.opacity(0.55), lineWidth:1.5)
-                            }
-                            // Closest date during drag: slim accent ring
-                            if isDroppable && !isSelected && !isToday && dragProximity > 0.75 {
+                                // Cyber: thin neon ring for today
                                 Circle()
-                                    .stroke(AppTheme.accent.opacity(dragProximity * 0.5), lineWidth:1.0)
+                                    .stroke(
+                                        LinearGradient(
+                                            colors: [AppTheme.accent.opacity(0.75), AppTheme.accent.opacity(0.30)],
+                                            startPoint: .topLeading, endPoint: .bottomTrailing
+                                        ),
+                                        lineWidth: 1.0
+                                    )
+                            }
+                            if isDroppable && !isSelected && !isToday && dragProximity > 0.65 {
+                                // Drop target: animated glow ring
+                                Circle()
+                                    .stroke(AppTheme.accent.opacity(dragProximity * 0.55), lineWidth: 1.0)
                             }
                         }
                     )
-                    .brightness(0)
 
-                // Dot: always show when goal covers date (even during drag)
+                // Dot — color-coded by goal, glows on drag proximity
                 Circle()
-                    .fill(dotColor != nil && !isDimmed && !isDragging ? dotColor! : Color.clear)
-                    .frame(width:3.5, height:3.5)
+                    .fill(
+                        dotColor != nil && !isDimmed && !isDragging
+                            ? dotColor!
+                            : (isDragging && dragProximity > 0.4 && isDroppable
+                                ? AppTheme.accent.opacity(dragProximity * 0.6)
+                                : Color.clear)
+                    )
+                    .frame(width: 3, height: 3)
             }
             .opacity(
-                isDragging && isPast ? 0.28 :
-                isDimmed ? 0.22 : 1.0
+                (isDragging && isPast) ? 0.22 :
+                isDimmed               ? 0.18 : 1.0
             )
-            .animation(.easeInOut(duration:0.18), value:isDimmed)
-            .animation(.easeInOut(duration:0.18), value:isDragging)
+            .animation(.easeInOut(duration: 0.15), value: isDimmed)
+            .animation(.easeInOut(duration: 0.15), value: isDragging)
         }
-        .frame(maxWidth:.infinity)
+        .frame(maxWidth: .infinity)
         .disabled(isDragging && isPast)
     }
 }
@@ -1049,170 +1227,272 @@ struct DayGoalCard: View {
     var effectiveTasks: [GoalTask] { store.tasks(for:date, goal:goal) }
 
     var body: some View {
-        VStack(alignment:.leading,spacing:11){
-            HStack{
-                VStack(alignment:.leading,spacing:4){
-                    HStack(spacing:5){
-                        Text(goal.category.uppercased()).font(.caption2).foregroundColor(AppTheme.textTertiary).kerning(1.5)
+        let pct = store.goalProgress(for: goal, on: date)
+
+        VStack(alignment: .leading, spacing: 0) {
+            // ── Header row ──────────────────────────────────
+            HStack(alignment: .top, spacing: 0) {
+                VStack(alignment: .leading, spacing: 5) {
+                    // Category + type badge
+                    HStack(spacing: 5) {
+                        Text(goal.category.uppercased())
+                            .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                            .foregroundColor(goal.color.opacity(0.65))
+                            .kerning(1.6)
+                            .shadow(color: goal.color.opacity(0.22), radius: 3, x: 0, y: 0)
                         if goal.goalType == .longterm {
-                            Text(store.t("长期","Ongoing")).font(.caption2).padding(.horizontal,5).padding(.vertical,2).background(goal.color.opacity(0.18)).foregroundColor(goal.color).cornerRadius(4)
+                            Text(store.t("∞", "∞"))
+                                .font(.system(size: 9, weight: .regular))
+                                .foregroundColor(goal.color.opacity(0.50))
                         }
                     }
-                    Text(goal.title).font(.headline).fontWeight(.medium).foregroundColor(AppTheme.textPrimary)
+                    // Goal title
+                    Text(goal.title)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(AppTheme.textPrimary.opacity(0.90))
+                        .lineLimit(1)
                 }
-                Spacer()
-                HStack(alignment:.top,spacing:8){
-                    VStack(alignment:.trailing,spacing:3){
-                        Text("\(Int(store.goalProgress(for:goal,on:date)*100))%")
-                            .font(.system(size:22,weight:.light,design:.rounded))
-                            .foregroundColor(store.goalProgress(for:goal,on:date) >= 1.0 ? goal.color : AppTheme.textPrimary.opacity(0.8))
-                            .monospacedDigit()
-                        if goal.goalType == .longterm {
-                            HStack(spacing:3){Image(systemName:"flame.fill").font(.system(size:9));Text(store.t("\(goal.daysSinceStart)天","\(goal.daysSinceStart)d")).font(.system(size:10))}.foregroundColor(goal.color.opacity(0.7))
-                        } else {
-                            HStack(spacing:3){Image(systemName:"clock").font(.caption2);Text(store.t("\(goal.daysLeft)天","\(goal.daysLeft)d")).font(.caption2)}.foregroundColor(daysColor)
+
+                Spacer(minLength: 8)
+
+                // Progress number + stat
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(Int(pct * 100))%")
+                        .font(.system(size: 24, weight: .thin, design: .rounded))
+                        .foregroundColor(pct >= 1.0 ? goal.color : AppTheme.textPrimary.opacity(0.80))
+                        .monospacedDigit()
+                    .shadow(color: pct >= 1.0 ? goal.color.opacity(0.35) : .clear, radius: 5, x: 0, y: 0)
+                    if goal.goalType == .longterm {
+                        HStack(spacing: 3) {
+                            Image(systemName: "flame.fill")
+                                .font(.system(size: 8))
+                            Text(store.t("\(goal.daysSinceStart)d", "\(goal.daysSinceStart)d"))
+                                .font(.system(size: 9, design: .monospaced))
                         }
+                        .foregroundColor(goal.color.opacity(0.55))
+                    } else {
+                        HStack(spacing: 3) {
+                            Image(systemName: "hourglass")
+                                .font(.system(size: 8))
+                            Text(store.t("\(goal.daysLeft)d", "\(goal.daysLeft)d"))
+                                .font(.system(size: 9, design: .monospaced))
+                        }
+                        .foregroundColor(daysColor.opacity(0.65))
                     }
-                    // 折叠/展开按钮
-                    Button(action:{ withAnimation(.spring(response:0.25)){ cardExpanded.toggle() }}) {
-                        Image(systemName: cardExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size:10,weight:.medium))
-                            .foregroundColor(AppTheme.textTertiary)
-                            .frame(width:22,height:22)
-                            .background(AppTheme.bg3).cornerRadius(6)
-                    }
+                }
+
+                // Expand toggle
+                Button(action: { withAnimation(.spring(response: 0.22)) { cardExpanded.toggle() } }) {
+                    Image(systemName: cardExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(AppTheme.textTertiary.opacity(0.55))
+                        .frame(width: 20, height: 20)
+                        .background(Color.white.opacity(0.04))
+                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                }
+                .padding(.leading, 8)
+            }
+            .padding(.top, 10)
+            .padding(.bottom, 8)
+
+            // ── Progress bar ─────────────────────────────────
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    // Track
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.white.opacity(0.06))
+                        .frame(height: 3)
+                    // Fill — neon gradient
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(
+                            LinearGradient(
+                                colors: [goal.color.opacity(0.55), goal.color, goal.color.opacity(0.80)],
+                                startPoint: .leading, endPoint: .trailing
+                            )
+                        )
+                        .frame(width: max(0, geo.size.width * CGFloat(pct)), height: 3)
+                        .shadow(color: goal.color.opacity(0.75), radius: 4, x: 0, y: 0)
+                        .shadow(color: goal.color.opacity(0.35), radius: 8, x: 0, y: 0)
                 }
             }
-            GeometryReader{geo in
-                let pct=store.goalProgress(for:goal,on:date)
-                ZStack(alignment:.leading){
-                    RoundedRectangle(cornerRadius:3).fill(AppTheme.bg3).frame(height:4)
-                    RoundedRectangle(cornerRadius:3)
-                        .fill(LinearGradient(colors:[goal.color.opacity(0.7), goal.color, goal.color.opacity(0.9)],
-                                             startPoint:.leading, endPoint:.trailing))
-                        .frame(width:max(0, geo.size.width*pct), height:4)
-                        .shadow(color:goal.color.opacity(0.5), radius:4, x:0, y:0)
-                }
-            }.frame(height:5)
-            if cardExpanded {
-                VStack(spacing:4){
-                    ForEach(effectiveTasks.prefix(3)){ task in
-                        HStack(spacing:8){
-                            RoundedRectangle(cornerRadius:1)
-                                .fill(task.isCompleted ? goal.color : AppTheme.textTertiary.opacity(0.3))
-                                .frame(width:4,height:4)
-                            Text(task.title).font(.caption).foregroundColor(task.isCompleted ? AppTheme.textTertiary:AppTheme.textSecondary)
-                            Spacer()
-                            if let m=task.estimatedMinutes{Text("\(m)min").font(.caption2).foregroundColor(AppTheme.textTertiary)}
+            .frame(height: 3)
+
+            // ── Tasks: horizontal chip row ────────────────────
+            if cardExpanded && !effectiveTasks.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 5) {
+                        ForEach(effectiveTasks.prefix(6)) { task in
+                            HStack(spacing: 4) {
+                                // Status dot
+                                Circle()
+                                    .fill(task.isCompleted ? goal.color : Color.white.opacity(0.15))
+                                    .frame(width: 4, height: 4)
+                                Text(task.title)
+                                    .font(.system(size: 10, weight: .regular))
+                                    .foregroundColor(
+                                        task.isCompleted
+                                            ? goal.color.opacity(0.55)
+                                            : AppTheme.textSecondary.opacity(0.70)
+                                    )
+                                    .lineLimit(1)
+                                if let m = task.estimatedMinutes {
+                                    Text("·\(m)m")
+                                        .font(.system(size: 9, design: .monospaced))
+                                        .foregroundColor(AppTheme.textTertiary.opacity(0.45))
+                                }
+                            }
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule()
+                                    .fill(
+                                        task.isCompleted
+                                            ? goal.color.opacity(0.12)
+                                            : Color.white.opacity(0.045)
+                                    )
+                                    .overlay(
+                                        Capsule()
+                                            .stroke(
+                                                task.isCompleted
+                                                    ? goal.color.opacity(0.28)
+                                                    : Color.white.opacity(0.08),
+                                                lineWidth: 0.5
+                                            )
+                                    )
+                            )
+                        }
+                        if effectiveTasks.count > 6 {
+                            Text("+\(effectiveTasks.count - 6)")
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundColor(AppTheme.textTertiary.opacity(0.50))
+                                .padding(.leading, 2)
                         }
                     }
-                    if effectiveTasks.count>3{Text(store.t("还有 \(effectiveTasks.count-3) 个…","+\(effectiveTasks.count-3) more")).font(.caption2).foregroundColor(AppTheme.textTertiary)}
+                    .padding(.horizontal, 2)
                 }
-                .transition(.opacity.combined(with:.move(edge:.top)))
+                .padding(.top, 6)
+                .padding(.bottom, 2)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
+
+            // ── Highlighted actions row ──────────────────────
             if isHighlighted {
-                HStack{
-                    Text(store.t("双击编辑 · 长按拖动排序 · 左条改截止日","Double-tap edit · long-press reorder · strip=deadline")).font(.caption2).foregroundColor(goal.color.opacity(0.75))
-                    Spacer()
-                    HStack(spacing:8){
-                        Button(action:onShare){
-                            HStack(spacing:3){Image(systemName:"square.and.arrow.up").font(.caption2);Text(store.t("分享","Share")).font(.caption2)}
-                                .padding(.horizontal,8).padding(.vertical,4).background(goal.color.opacity(0.15)).foregroundColor(goal.color).cornerRadius(6)
+                HStack(spacing: 0) {
+                    Text(store.t("双击编辑  ·  左条拖改截止日", "double-tap edit · drag strip=deadline"))
+                        .font(.system(size: 9, weight: .regular))
+                        .foregroundColor(goal.color.opacity(0.45))
+                        .lineLimit(1)
+                    Spacer(minLength: 6)
+                    HStack(spacing: 6) {
+                        Button(action: onShare) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "square.and.arrow.up").font(.system(size: 9))
+                                Text(store.t("分享", "Share")).font(.system(size: 10))
+                            }
+                            .padding(.horizontal, 9).padding(.vertical, 4)
+                            .background(goal.color.opacity(0.12))
+                            .foregroundColor(goal.color.opacity(0.80))
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(goal.color.opacity(0.20), lineWidth: 0.5))
                         }
-                        Button(action:{showDeleteConfirm=true}){
-                            HStack(spacing:3){Image(systemName:"trash").font(.caption2);Text(store.t("删除","Del")).font(.caption2)}
-                                .padding(.horizontal,8).padding(.vertical,4).background(Color.red.opacity(0.12)).foregroundColor(.red).cornerRadius(6)
+                        Button(action: { showDeleteConfirm = true }) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "trash").font(.system(size: 9))
+                                Text(store.t("删除", "Del")).font(.system(size: 10))
+                            }
+                            .padding(.horizontal, 9).padding(.vertical, 4)
+                            .background(Color.red.opacity(0.10))
+                            .foregroundColor(Color.red.opacity(0.70))
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(Color.red.opacity(0.18), lineWidth: 0.5))
                         }
                     }
-                }.transition(.opacity)
+                }
+                .padding(.top, 8)
+                .padding(.bottom, 2)
+                .transition(.opacity)
             }
         }
-        .padding(.leading, 28)   // 给左侧拖拽条留空间（比竖条宽）
-        .padding(.trailing, 16)
-        .padding(.vertical, 16)
-        .background(
-            ZStack{
-                // 基础卡片层
-                RoundedRectangle(cornerRadius:20).fill(AppTheme.bg1)
-                // 顶部微高光（模拟玻璃反射）
-                RoundedRectangle(cornerRadius:20)
-                    .fill(LinearGradient(
-                        colors:[Color.white.opacity(0.035), Color.clear],
-                        startPoint:.topLeading, endPoint:.center
-                    ))
-                // 目标色彩晕 — hover/select时更亮
-                RoundedRectangle(cornerRadius:20)
-                    .fill(RadialGradient(
-                        colors:[goal.color.opacity(isDragging ? 0.16:isHighlighted ? 0.10:0.05), Color.clear],
-                        center:.topLeading, startRadius:0, endRadius:150
-                    ))
-            }
+        .padding(.bottom, 11)
+        .padding(.leading, 22)    // space for left drag strip
+        .padding(.trailing, 13)
+        .cyberGlass(
+            color: goal.color,
+            cornerRadius: 16,
+            isActive: isHighlighted,
+            isGlowing: isDragging
         )
-        .cornerRadius(20)
-        .overlay(RoundedRectangle(cornerRadius:20)
-            .stroke(isDragging ? goal.color.opacity(0.7):isHighlighted ? goal.color.opacity(0.4):AppTheme.border0, lineWidth:isDragging ? 1.5:1))
-        .shadow(color: isDragging ? goal.color.opacity(0.25) : isHighlighted ? goal.color.opacity(0.10) : .black.opacity(0.25),
-                radius: isDragging ? 20 : isHighlighted ? 10 : 8,
-                x:0, y: isDragging ? 8 : 4)
-        // 左侧拖拽条：彩色竖条 + 三点拖拽标识，全卡片高度，宽约22pt
-        .overlay(alignment:.leading){
+        // ── Left drag strip ──────────────────────────────────
+        .overlay(alignment: .leading) {
             ZStack {
-                // 底色条（全高）
-                RoundedRectangle(cornerRadius:0)
-                    .fill(LinearGradient(
-                        colors:[goal.color.opacity(isDragging ? 0.22 : 0.10), goal.color.opacity(isDragging ? 0.08 : 0.03)],
-                        startPoint:.top, endPoint:.bottom
-                    ))
-                    .frame(width:22)
-                    .clipShape(
-                        .rect(topLeadingRadius:18, bottomLeadingRadius:18, bottomTrailingRadius:0, topTrailingRadius:0)
+                // Color wash background
+                Rectangle()
+                    .fill(
+                        LinearGradient(
+                            colors: [goal.color.opacity(isDragging ? 0.30 : 0.14), Color.clear],
+                            startPoint: .leading, endPoint: .trailing
+                        )
                     )
-                // 左边缘色条（细）
-                RoundedRectangle(cornerRadius:1.5)
-                    .fill(LinearGradient(
-                        colors:[goal.color, goal.color.opacity(0.3)],
-                        startPoint:.top, endPoint:.bottom
-                    ))
-                    .frame(width:2.5)
-                    .frame(maxHeight:.infinity)
-                    .padding(.vertical, 14)
-                    .frame(width:22, alignment:.leading)
-                // 三个点（拖拽标识，垂直居中）
-                VStack(spacing:4){
-                    ForEach(0..<3, id:\.self){ _ in
-                        Circle()
-                            .fill(isDragging ? goal.color : AppTheme.textTertiary.opacity(0.5))
-                            .frame(width:3, height:3)
+                    .frame(width: 24)
+                    .clipShape(.rect(topLeadingRadius: 16, bottomLeadingRadius: 16))
+                // Neon leading edge line — glows on drag
+                Rectangle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                goal.color.opacity(isDragging ? 1.0 : 0.60),
+                                goal.color.opacity(isDragging ? 0.55 : 0.12)
+                            ],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+                    .frame(width: isDragging ? 2.0 : 1.5)
+                    .frame(maxHeight: .infinity)
+                    .padding(.vertical, 10)
+                    .frame(width: 24, alignment: .leading)
+                    .shadow(color: goal.color.opacity(isDragging ? 0.7 : 0), radius: 4, x: 2, y: 0)
+                // Drag dots (vertically centred)
+                VStack(spacing: 3) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 1)
+                            .fill(isDragging ? goal.color : Color.white.opacity(0.28))
+                            .frame(width: 2, height: 4)
                     }
                 }
-                .frame(width:22)
-                .scaleEffect(isDragging ? 1.2 : 1.0)
-                .animation(.spring(response:0.2), value:isDragging)
+                .frame(width: 24)
+                .scaleEffect(isDragging ? 1.30 : 1.0)
+                .shadow(color: goal.color.opacity(isDragging ? 0.45 : 0), radius: 3)
+                .animation(.spring(response: 0.18), value: isDragging)
             }
-            .frame(width:22)
-            .contentShape(Rectangle())
+            .frame(width: 24)
+            // Wider invisible hit area extends 8pt into card for easier grab
+            .contentShape(Rectangle().inset(by: -2))
             .gesture(
-                DragGesture(minimumDistance:4, coordinateSpace:.global)
-                    .onChanged{ v in onDragChanged(v.location) }
-                    .onEnded{ _ in onDragEnded() }
+                DragGesture(minimumDistance: 3, coordinateSpace: .global)
+                    .onChanged { v in onDragChanged(v.location) }
+                    .onEnded   { _ in onDragEnded() }
             )
         }
-        .scaleEffect(isDragging ? 0.96:1.0)
-        .shadow(color:isDragging ? goal.color.opacity(0.25):isHighlighted ? goal.color.opacity(0.08):.black.opacity(0.15),
-                radius:isDragging ? 16:8, x:0, y:isDragging ? 8:3)
+        .scaleEffect(isDragging ? 0.975 : 1.0)
         .contentShape(Rectangle())
-        .onTapGesture{
-            tapCount+=1
-            if tapCount==1 { tapTimer=Timer.scheduledTimer(withTimeInterval:0.32,repeats:false){_ in if tapCount==1{onSingleTap()};tapCount=0} }
-            else if tapCount>=2{tapTimer?.invalidate();tapCount=0;onDoubleTap()}
+        .onTapGesture {
+            tapCount += 1
+            if tapCount == 1 {
+                tapTimer = Timer.scheduledTimer(withTimeInterval: 0.30, repeats: false) { _ in
+                    if self.tapCount == 1 { self.onSingleTap() }
+                    self.tapCount = 0
+                }
+            } else if tapCount >= 2 {
+                tapTimer?.invalidate(); tapCount = 0; onDoubleTap()
+            }
         }
-        .animation(Animation.easeInOut(duration:0.2),value:isHighlighted)
-        .animation(Animation.spring(response:0.25),value:isDragging)
-        .alert(store.t("删除目标","Delete Goal"),isPresented:$showDeleteConfirm){
-            Button(store.t("删除","Delete"),role:.destructive){ onDelete() }
-            Button(store.t("取消","Cancel"),role:.cancel){}
-        } message:{
-            Text(store.t("删除后无法恢复","This cannot be undone"))
+        .animation(.easeInOut(duration: 0.18), value: isHighlighted)
+        .animation(.spring(response: 0.22), value: isDragging)
+        .alert(store.t("删除目标", "Delete Goal"), isPresented: $showDeleteConfirm) {
+            Button(store.t(key: L10n.delete), role: .destructive) { onDelete() }
+            Button(store.t(key: L10n.cancel), role: .cancel) {}
+        } message: {
+            Text(store.t("删除后无法恢复", "This cannot be undone"))
         }
     }
 }
@@ -1253,14 +1533,14 @@ struct GoalEditSheet: View {
                 VStack(alignment:.leading,spacing:20){
                     // 名称
                     VStack(alignment:.leading,spacing:7){
-                        SectionLabel(store.t("目标名称","Goal Title"),icon:"flag")
+                        SectionLabel(store.t(key: L10n.goalTitle),icon:"flag")
                         TextField(store.t("比如：每天健身","e.g. Exercise daily"),text:$title)
                             .textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(12).foregroundColor(AppTheme.textPrimary)
                             .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border1,lineWidth:1))
                     }
                     // 分类
                     VStack(alignment:.leading,spacing:7){
-                        SectionLabel(store.t("分类","Category"),icon:"tag")
+                        SectionLabel(store.t(key: L10n.category),icon:"tag")
                         ScrollView(.horizontal,showsIndicators:false){
                             HStack(spacing:7){
                                 ForEach(cats,id:\.0){ cat in
@@ -1315,7 +1595,7 @@ struct GoalEditSheet: View {
                                 .padding(13).background(AppTheme.bg2).cornerRadius(12)
                                 .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border1,lineWidth:1))
                             Text(store.t("从选定日起，所有历史和未来日期都会显示此目标","Goal will appear on all dates from start date onward"))
-                                .font(.caption2).foregroundColor(AppTheme.textTertiary)
+                                .font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
                         } else {
                             // 编辑：仅显示（不允许修改开始日期，否则历史数据混乱）
                             HStack {
@@ -1341,21 +1621,21 @@ struct GoalEditSheet: View {
                     // 任务
                     VStack(alignment:.leading,spacing:8){
                         HStack{
-                            SectionLabel(store.t("任务","Tasks"),icon:"checklist");Spacer()
+                            SectionLabel(store.t(key: L10n.tasks),icon:"checklist");Spacer()
                             Button(action:{showingAddTask=true}){
                                 HStack(spacing:4){Image(systemName:"plus");Text(store.t("添加","Add"))}.font(.caption).padding(.horizontal,11).padding(.vertical,5).background(AppTheme.bg3).cornerRadius(8).foregroundColor(AppTheme.textSecondary).overlay(RoundedRectangle(cornerRadius:8).stroke(AppTheme.border1,lineWidth:1))
                             }
                         }
-                        if tasks.isEmpty{Text(store.t("还没有任务","No tasks yet")).font(.caption).foregroundColor(AppTheme.textTertiary).frame(maxWidth:.infinity).padding(.vertical,12)}
+                        if tasks.isEmpty{Text(store.t("还没有任务","No tasks yet")).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary).frame(maxWidth:.infinity).padding(.vertical,12)}
                         else{ ForEach(tasks.indices,id:\.self){ i in TaskEditRow(task:$tasks[i],color:selectedColor,onDelete:{tasks.remove(at:i)},store:store) } }
                     }
                     // 日历光点开关
                     HStack(spacing:12) {
                         VStack(alignment:.leading, spacing:3) {
                             Text(store.t("日历光点","Calendar Dot"))
-                                .font(.subheadline).foregroundColor(AppTheme.textPrimary)
+                                .font(.system(size: DSTSize.body, weight: .regular)).misty(.primary)
                             Text(store.t("在日历上显示有任务的天数","Show dot on days with tasks"))
-                                .font(.caption2).foregroundColor(AppTheme.textTertiary)
+                                .font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
                         }
                         Spacer()
                         Toggle("", isOn:$showCalendarDot).tint(selectedColor).labelsHidden()
@@ -1380,9 +1660,9 @@ struct GoalEditSheet: View {
             .background(AppTheme.bg0.ignoresSafeArea())
             .navigationTitle(store.t(goal==nil ? "添加目标":"编辑目标",goal==nil ? "Add Goal":"Edit Goal")).navigationBarTitleDisplayMode(.inline)
             .toolbar{
-                ToolbarItem(placement:.navigationBarLeading){Button(store.t("取消","Cancel")){dismiss()}.foregroundColor(AppTheme.textSecondary)}
+                ToolbarItem(placement:.navigationBarLeading){Button(store.t(key: L10n.cancel)){dismiss()}.foregroundColor(AppTheme.textSecondary)}
                 ToolbarItem(placement:.navigationBarTrailing){
-                    Button(store.t("保存","Save")){
+                    Button(store.t(key: L10n.save)){
                         guard !title.isEmpty else { return }
                         let finalStart = goal?.startDate ?? Calendar.current.startOfDay(for:startDate)
                         let newGoal = Goal(
@@ -1402,11 +1682,11 @@ struct GoalEditSheet: View {
             .sheet(isPresented:$showingAddTask){TaskAddSheet(color:selectedColor){tasks.append($0)}}
             .animation(.spring(response:0.3),value:goalType)
             .alert(store.t("删除目标","Delete Goal"),isPresented:$showDeleteConfirm){
-                Button(store.t("删除","Delete"),role:.destructive){
+                Button(store.t(key: L10n.delete),role:.destructive){
                     if let g=goal { store.deleteGoal(g) }
                     dismiss()
                 }
-                Button(store.t("取消","Cancel"),role:.cancel){}
+                Button(store.t(key: L10n.cancel),role:.cancel){}
             } message:{
                 Text(store.t("删除后无法恢复，确认吗？","This cannot be undone."))
             }
@@ -1420,8 +1700,8 @@ struct TaskEditRow: View {
         HStack(spacing:11){
             Circle().fill(color.opacity(0.6)).frame(width:7,height:7)
             VStack(alignment:.leading,spacing:2){
-                Text(task.title).font(.subheadline).foregroundColor(AppTheme.textPrimary)
-                if let m=task.estimatedMinutes{Text(store.t("\(m) 分钟","\(m) min")).font(.caption2).foregroundColor(AppTheme.textTertiary)}
+                Text(task.title).font(.system(size: DSTSize.body, weight: .regular)).misty(.primary)
+                if let m=task.estimatedMinutes{Text(store.t("\(m) 分钟","\(m) min")).font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)}
             }
             Spacer()
             Button(action:onDelete){Image(systemName:"xmark.circle.fill").foregroundColor(AppTheme.textTertiary.opacity(0.7)).font(.body)}
@@ -1443,10 +1723,10 @@ struct TaskAddSheet: View {
                         SectionLabel(store.t("任务名称","Task Name"),icon:"pencil")
                         TextField(store.t("比如：早晨跑步","e.g. Morning run"),text:$title).textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(12).foregroundColor(AppTheme.textPrimary).overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border1,lineWidth:1))
                     }
-                    HStack{Text(store.t("预计完成时间","Estimated Time")).font(.subheadline).foregroundColor(AppTheme.textPrimary);Spacer();Toggle("",isOn:$useTime).tint(color).labelsHidden()}
+                    HStack{Text(store.t("预计完成时间","Estimated Time")).font(.system(size: DSTSize.body, weight: .regular)).misty(.primary);Spacer();Toggle("",isOn:$useTime).tint(color).labelsHidden()}
                     if useTime {
                         VStack(spacing:10){
-                            HStack{Text(store.t("最长","Max")).font(.caption).foregroundColor(AppTheme.textTertiary);TextField("120",text:$maxInput).keyboardType(.numberPad).textFieldStyle(.plain).frame(width:55).padding(8).background(AppTheme.bg3).cornerRadius(8).foregroundColor(AppTheme.textPrimary).multilineTextAlignment(.center).onChange(of:maxInput){if let n=Int(maxInput),n>0{maxMins=n}};Text(store.t("分钟","min")).font(.caption).foregroundColor(AppTheme.textTertiary)}
+                            HStack{Text(store.t("最长","Max")).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary);TextField("120",text:$maxInput).keyboardType(.numberPad).textFieldStyle(.plain).frame(width:55).padding(8).background(AppTheme.bg3).cornerRadius(8).foregroundColor(AppTheme.textPrimary).multilineTextAlignment(.center).onChange(of:maxInput){if let n=Int(maxInput),n>0{maxMins=n}};Text(store.t("分钟","min")).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)}
                             Picker("",selection:$mins){ForEach(options,id:\.self){Text(store.t("\($0) 分钟","\($0) min")).tag($0)}}.pickerStyle(.wheel).frame(height:120).clipped().background(AppTheme.bg2).cornerRadius(12)
                         }.padding(13).background(AppTheme.bg2).cornerRadius(12).overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1)).transition(.move(edge:.top).combined(with:.opacity))
                     }
@@ -1455,9 +1735,9 @@ struct TaskAddSheet: View {
             }
             .animation(.spring(response:0.3),value:useTime)
             .background(AppTheme.bg0.ignoresSafeArea())
-            .navigationTitle(store.t("添加任务","Add Task")).navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(store.t(key: L10n.addTask)).navigationBarTitleDisplayMode(.inline)
             .toolbar{
-                ToolbarItem(placement:.navigationBarLeading){Button(store.t("取消","Cancel")){dismiss()}.foregroundColor(AppTheme.textSecondary)}
+                ToolbarItem(placement:.navigationBarLeading){Button(store.t(key: L10n.cancel)){dismiss()}.foregroundColor(AppTheme.textSecondary)}
                 ToolbarItem(placement:.navigationBarTrailing){Button(store.t("添加","Add")){guard !title.isEmpty else{return};onAdd(GoalTask(title:title,estimatedMinutes:useTime ? mins:nil));dismiss()}.foregroundColor(color).fontWeight(.medium).disabled(title.isEmpty)}
             }
         }
@@ -1523,7 +1803,7 @@ struct TodayView: View {
                     if todayGoals.isEmpty {
                         VStack(spacing:8){
                             Image(systemName:"target").font(.largeTitle).foregroundColor(AppTheme.textTertiary)
-                            Text(store.t("今天暂无任务","No tasks today")).font(.subheadline).foregroundColor(AppTheme.textSecondary)
+                            Text(store.t("今天暂无任务","No tasks today")).font(.system(size: DSTSize.body, weight: .regular)).misty(.secondary)
                         }.frame(maxWidth:.infinity).padding(.vertical,36)
                     }
 
@@ -1597,7 +1877,7 @@ struct DailyChallengeTracker: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.caption2).foregroundColor(AppTheme.gold)
                         Text(store.t("待决事项", "Pending Items"))
-                            .font(.caption).foregroundColor(AppTheme.textTertiary).kerning(1.5)
+                            .font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary).kerning(1.5)
                         Spacer()
                         let totalActive = state.active.count
                         let totalResolved = state.resolved.count
@@ -1608,7 +1888,7 @@ struct DailyChallengeTracker: View {
                                 .background(AppTheme.gold.opacity(0.1)).cornerRadius(5)
                         }
                         Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.caption2).foregroundColor(AppTheme.textTertiary)
+                            .font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
                     }.padding(14)
                 }
 
@@ -1619,7 +1899,7 @@ struct DailyChallengeTracker: View {
 
                         if allKW.isEmpty {
                             Text(store.t("今日无待解决困难", "No challenges today"))
-                                .font(.caption).foregroundColor(AppTheme.textTertiary)
+                                .font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                                 .padding(.vertical, 4)
                         } else {
                             ForEach(allKW, id: \.self) { kw in
@@ -1703,7 +1983,7 @@ struct TodayJournalCard: View {
                 HStack(spacing:8) {
                     Image(systemName:"book.pages").font(.caption).foregroundColor(AppTheme.accent)
                     Text(store.t("今日心得","Today's Journal"))
-                        .font(.caption).foregroundColor(AppTheme.textTertiary).kerning(1.5)
+                        .font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary).kerning(1.5)
                     Spacer()
                     if draft.rating > 0 { Text(emojis[draft.rating-1]).font(.body) }
                     // 关键词计数徽标
@@ -1713,7 +1993,7 @@ struct TodayJournalCard: View {
                             .background(AppTheme.accent.opacity(0.15)).cornerRadius(4).foregroundColor(AppTheme.accent)
                     }
                     if isSubmitted { Image(systemName:"checkmark.circle.fill").font(.caption).foregroundColor(AppTheme.accent) }
-                    Image(systemName: expanded ? "chevron.up":"chevron.down").font(.caption2).foregroundColor(AppTheme.textTertiary)
+                    Image(systemName: expanded ? "chevron.up":"chevron.down").font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
                 }.padding(14)
             }
 
@@ -1829,7 +2109,7 @@ struct KeywordInputSection: View {
 
             // 提示文字
             if keywords.isEmpty {
-                Text(hint).font(.caption2).foregroundColor(AppTheme.textTertiary).lineSpacing(2)
+                Text(hint).font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary).lineSpacing(2)
             }
 
             // 已添加的关键词 chips
@@ -1854,7 +2134,7 @@ struct KeywordInputSection: View {
             // 输入框
             HStack(spacing:8) {
                 TextField(store.t("输入词语，回车添加","Type keyword, hit return"), text:$inputText)
-                    .font(.subheadline).foregroundColor(AppTheme.textPrimary)
+                    .font(.system(size: DSTSize.body, weight: .regular)).misty(.primary)
                     .focused($focused)
                     .onSubmit { addKeyword() }
                     .padding(.horizontal,11).padding(.vertical,9)
@@ -1871,7 +2151,7 @@ struct KeywordInputSection: View {
 
             // 关键词数量提示
             if keywords.count >= 5 {
-                Text(store.t("已达5词建议上限","5 keywords — recommended limit")).font(.caption2).foregroundColor(AppTheme.textTertiary)
+                Text(store.t("已达5词建议上限","5 keywords — recommended limit")).font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
             }
 
             // 详细文本（可选展开）
@@ -1947,7 +2227,7 @@ struct TodayGoalSection: View {
                         Text(storeEnv.t("\(goal.daysSinceStart) 天","\(goal.daysSinceStart)d")).font(.system(size:10))
                     }.foregroundColor(goal.color.opacity(0.7))
                 } else {
-                    Text("\(Int(goal.progress*100))%").font(.caption).foregroundColor(AppTheme.textTertiary)
+                    Text("\(Int(goal.progress*100))%").font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                 }
             }.padding(.horizontal,2)
             ForEach(tasks){task in TodaySliderRow(task:task,goal:goal,store:store,date:date)}
@@ -2047,13 +2327,13 @@ struct TodayDailySummaryCard: View {
                     HStack(alignment: .lastTextBaseline, spacing: 4) {
                         Text("\(completed)").font(.system(size: 30, weight: .ultraLight)).foregroundColor(AppTheme.textPrimary)
                         Text("/ \(total)").font(.system(size: 13)).foregroundColor(AppTheme.textTertiary)
-                        Text(store.t("已完成", "done")).font(.caption).foregroundColor(AppTheme.textTertiary)
+                        Text(store.t("已完成", "done")).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                     }
                     Text(rate >= 1.0 ? store.t("今日全部完成 🎉", "All done today 🎉") :
                          rate >= 0.5 ? store.t("过半了，继续加油", "More than halfway") :
                          total == 0  ? store.t("暂无任务", "No tasks yet") :
                                        store.t("今天还有机会", "Today's still yours"))
-                    .font(.caption).foregroundColor(AppTheme.textTertiary)
+                    .font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                 }
                 Spacer()
                 if hasAny {
@@ -2163,7 +2443,7 @@ struct LiveKeywordSection: View {
                 }
             }
             if liveKW.isEmpty {
-                Text(hint).font(.caption2).foregroundColor(AppTheme.textTertiary).lineSpacing(2)
+                Text(hint).font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary).lineSpacing(2)
             } else {
                 FlowLayout(spacing:6) {
                     ForEach(liveKW, id:\.self) { kw in chipView(kw:kw) }
@@ -2171,7 +2451,7 @@ struct LiveKeywordSection: View {
             }
             HStack(spacing:8) {
                 TextField(store.t("输入关键词，回车添加","Type keyword, press return"), text:$inputText)
-                    .font(.subheadline).foregroundColor(AppTheme.textPrimary)
+                    .font(.system(size: DSTSize.body, weight: .regular)).misty(.primary)
                     .focused($inputFocused).onSubmit { addKW() }
                     .padding(.horizontal,11).padding(.vertical,9)
                     .background(AppTheme.bg2).cornerRadius(9)
@@ -2408,13 +2688,13 @@ struct DailySummaryCard: View {
                 HStack(alignment:.lastTextBaseline,spacing:4){
                     Text("\(completed)").font(.system(size:34,weight:.ultraLight)).foregroundColor(AppTheme.textPrimary)
                     Text("/ \(total)").font(.system(size:14)).foregroundColor(AppTheme.textTertiary)
-                    Text(store.t("已完成","done")).font(.caption).foregroundColor(AppTheme.textTertiary)
+                    Text(store.t("已完成","done")).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                 }
                 Text(rate >= 1.0 ? store.t("今日全部完成 🎉","All done today 🎉") :
                      rate >= 0.5 ? store.t("过半了，继续加油","More than halfway") :
                      total == 0  ? store.t("暂无任务","No tasks yet") :
                                    store.t("今天还有机会","Today's still yours"))
-                    .font(.caption).foregroundColor(AppTheme.textTertiary)
+                    .font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
             }
             Spacer()
         }.padding(18).background(ZStack { RoundedRectangle(cornerRadius:20).fill(AppTheme.bg1); RoundedRectangle(cornerRadius:20).fill(LinearGradient(colors:[Color.white.opacity(0.03),Color.clear],startPoint:.topLeading,endPoint:.bottomTrailing)) }).cornerRadius(20)
@@ -2440,11 +2720,7 @@ struct PlanChipDrag {
 
 struct AddTaskToPlanItem: Identifiable { let id=UUID(); let date:Date; let goal:Goal }
 
-// 实时追踪每天row的全局frame（PreferenceKey解决ScrollView滚动后frame失效问题）
-struct GoalsScrollOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
+// GoalsScrollOffsetKey already declared at top of file
 
 struct DayFramePreferenceKey: PreferenceKey {
     static var defaultValue: [String: CGRect] = [:]
@@ -2583,7 +2859,7 @@ struct PlanView: View {
         VStack(alignment:.leading,spacing:10) {
             HStack {
                 Text(store.t("选择目标","Select Goals"))
-                    .font(.caption).foregroundColor(AppTheme.textTertiary).kerning(1.5)
+                    .font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary).kerning(1.5)
                 Spacer()
                 if !selectedGoalIds.isEmpty {
                     aiTipsButton
@@ -2661,14 +2937,14 @@ struct PlanView: View {
             VStack(alignment:.leading,spacing:8) {
                 HStack(spacing:4) {
                     Image(systemName:"sparkles").font(.caption2).foregroundColor(AppTheme.accent)
-                    Text(store.t("AI 建议","AI Tips")).font(.caption2).foregroundColor(AppTheme.textTertiary)
+                    Text(store.t(key: L10n.aiTips)).font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
                 }
                 PlanChipFlow(chips:aiChips, chipDrag:$chipDrag, onDoubleTap:{ _ in },
                              isAIArea:true,
                              onDeleteAI:{ chip in withAnimation{ aiChips.removeAll{$0.id==chip.id} } },
                              onDrop:{ pos in handleChipDragEnd(at:pos) })
                     .environmentObject(store)
-                Text(store.t("双击编辑/删除 · 长按拖入周几","Double-tap edit/delete · drag to a day"))
+                Text(store.t(key: L10n.doubleTapEdit))
                     .font(.system(size:9)).foregroundColor(AppTheme.textTertiary.opacity(0.6))
             }
             .padding(.horizontal).padding(.vertical,12)
@@ -2682,7 +2958,7 @@ struct PlanView: View {
         VStack(spacing:1) {
             ForEach(weekDates.indices, id:\.self) { i in
                 let date = weekDates[i]
-                let lbl = store.language == .chinese ? labels_zh[i] : labels_en[i]
+                let lbl = L10n.weekdayFull(store.language)[safe: i] ?? labels_zh[i]
                 let key = "\(Calendar.current.startOfDay(for:date).timeIntervalSince1970)"
                 let isPast = Calendar.current.startOfDay(for:date) < Calendar.current.startOfDay(for:store.today)
                 PlanDayRow2(
@@ -2757,7 +3033,7 @@ struct PlanView: View {
             }
             .coordinateSpace(name:"planView")
             .background(AppTheme.bg0.ignoresSafeArea())
-            .navigationTitle(store.t("计划","Plan")).navigationBarTitleDisplayMode(.large)
+            .navigationTitle(store.t(key: L10n.plan)).navigationBarTitleDisplayMode(.large)
             .sheet(item:$editingItem){ item in
                 PlanTaskEditSheet(task:item.task,goal:item.goal,date:item.date,store:store)
             }
@@ -2997,9 +3273,9 @@ struct PlanChipEditSheet: View {
             .background(AppTheme.bg0.ignoresSafeArea())
             .navigationTitle(store.t("编辑任务","Edit Task")).navigationBarTitleDisplayMode(.inline)
             .toolbar{
-                ToolbarItem(placement:.navigationBarLeading){ Button(store.t("取消","Cancel")){dismiss()}.foregroundColor(AppTheme.textSecondary) }
+                ToolbarItem(placement:.navigationBarLeading){ Button(store.t(key: L10n.cancel)){dismiss()}.foregroundColor(AppTheme.textSecondary) }
                 ToolbarItem(placement:.navigationBarTrailing){
-                    Button(store.t("保存","Save")){
+                    Button(store.t(key: L10n.save)){
                         guard !title.isEmpty else { return }
                         let newGoalId = selectedGoalId
                         let oldGoalId = chip.goal.id
@@ -3017,12 +3293,12 @@ struct PlanChipEditSheet: View {
                 }
             }
             .alert(store.t("删除任务","Delete Task"),isPresented:$showDeleteConfirm){
-                Button(store.t("删除","Delete"),role:.destructive){
+                Button(store.t(key: L10n.delete),role:.destructive){
                     if isAIArea { onDeleteAI?() }
                     else if let date = chip.date { store.skipTask(chip.id, goalId:chip.goal.id, on:date) }
                     dismiss()
                 }
-                Button(store.t("取消","Cancel"),role:.cancel){}
+                Button(store.t(key: L10n.cancel),role:.cancel){}
             }
         }
     }
@@ -3126,7 +3402,7 @@ struct PlanDayRow2: View {
         .overlay(pastOverlay)
         .confirmationDialog(store.t("选择目标","Choose Goal"),isPresented:$showGoalPicker,titleVisibility:.visible){
             ForEach(store.goals){ goal in Button(goal.title){ onAddTask(goal) } }
-            Button(store.t("取消","Cancel"),role:.cancel){}
+            Button(store.t(key: L10n.cancel),role:.cancel){}
         }
     }
 
@@ -3159,7 +3435,7 @@ struct PlanAddTaskSheet: View {
                         .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border1,lineWidth:1))
                 }
                 HStack{
-                    Text(store.t("预计时间","Estimated time")).font(.subheadline).foregroundColor(AppTheme.textPrimary)
+                    Text(store.t("预计时间","Estimated time")).font(.system(size: DSTSize.body, weight: .regular)).misty(.primary)
                     Spacer()
                     Toggle("",isOn:$useTime).tint(goal.color).labelsHidden()
                 }
@@ -3173,10 +3449,10 @@ struct PlanAddTaskSheet: View {
                 Spacer()
             }.padding(20)
             .background(AppTheme.bg0.ignoresSafeArea())
-            .navigationTitle(store.t("添加任务","Add Task")).navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(store.t(key: L10n.addTask)).navigationBarTitleDisplayMode(.inline)
             .toolbar{
                 ToolbarItem(placement:.navigationBarLeading){
-                    Button(store.t("取消","Cancel")){dismiss()}.foregroundColor(AppTheme.textSecondary)
+                    Button(store.t(key: L10n.cancel)){dismiss()}.foregroundColor(AppTheme.textSecondary)
                 }
                 ToolbarItem(placement:.navigationBarTrailing){
                     Button(store.t("添加","Add")){
@@ -3207,7 +3483,7 @@ struct PlanTaskEditSheet: View {
                     SectionLabel(storeEnv.t("任务名称（仅此日）","Name (this day only)"),icon:"pencil")
                     TextField(storeEnv.t("任务名称","Task name"),text:$title).textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(12).foregroundColor(AppTheme.textPrimary).overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border1,lineWidth:1))
                 }
-                HStack{Text(storeEnv.t("预计时间","Estimated time")).font(.subheadline).foregroundColor(AppTheme.textPrimary);Spacer();Toggle("",isOn:$useTime).tint(goal.color).labelsHidden()}
+                HStack{Text(storeEnv.t("预计时间","Estimated time")).font(.system(size: DSTSize.body, weight: .regular)).misty(.primary);Spacer();Toggle("",isOn:$useTime).tint(goal.color).labelsHidden()}
                 if useTime{
                     Picker("",selection:$minutes){ForEach(stride(from:5,through:120,by:5).map{$0},id:\.self){Text(storeEnv.t("\($0) 分钟","\($0) min")).tag($0)}}.pickerStyle(.wheel).frame(height:110).clipped().background(AppTheme.bg2).cornerRadius(12)
                 }
@@ -3385,10 +3661,10 @@ struct StatsView: View {
                             HStack{
                                 Image(systemName:"book.fill").foregroundColor(AppTheme.accent)
                                 Text(store.t("我的成长","My Growth"))
-                                    .font(.subheadline).foregroundColor(AppTheme.textSecondary)
+                                    .font(.system(size: DSTSize.body, weight: .regular)).misty(.secondary)
                                 Spacer()
-                                Text("\(store.journalEntries.count)").font(.caption).foregroundColor(AppTheme.textTertiary)
-                                Image(systemName:"chevron.right").font(.caption2).foregroundColor(AppTheme.textTertiary)
+                                Text("\(store.journalEntries.count)").font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
+                                Image(systemName:"chevron.right").font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
                             }
                             .padding(14).background(AppTheme.bg1).cornerRadius(13)
                             .overlay(RoundedRectangle(cornerRadius:13).stroke(AppTheme.border0,lineWidth:1))
@@ -3404,9 +3680,9 @@ struct StatsView: View {
                         Button(action:{showSettings=true}){
                             HStack{
                                 Image(systemName:"gearshape.fill").foregroundColor(AppTheme.textTertiary)
-                                Text(store.t("设置","Settings")).font(.subheadline).foregroundColor(AppTheme.textSecondary)
+                                Text(store.t("设置","Settings")).font(.system(size: DSTSize.body, weight: .regular)).misty(.secondary)
                                 Spacer()
-                                Image(systemName:"chevron.right").font(.caption2).foregroundColor(AppTheme.textTertiary)
+                                Image(systemName:"chevron.right").font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
                             }.padding(.horizontal,14).padding(.vertical,12)
                         }
                     }
@@ -3418,7 +3694,7 @@ struct StatsView: View {
                 }
             }
             .background(AppTheme.bg0.ignoresSafeArea())
-            .navigationTitle(store.t("我的","Me")).navigationBarTitleDisplayMode(.large)
+            .navigationTitle(store.t(key: L10n.myPage)).navigationBarTitleDisplayMode(.large)
             .sheet(isPresented:$showSettings){SettingsSheet()}
             .sheet(isPresented:$showJournal){JournalListView()}
         }
@@ -3464,14 +3740,14 @@ struct AgePickerRow: View {
         VStack(alignment:.leading, spacing:0) {
             // 主行
             HStack {
-                Image(systemName:"person.fill").font(.caption).foregroundColor(AppTheme.textTertiary)
-                Text(store.t("年龄","Age")).font(.subheadline).foregroundColor(AppTheme.textSecondary)
+                Image(systemName:"person.fill").font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
+                Text(store.t("年龄","Age")).font(.system(size: DSTSize.body, weight: .regular)).misty(.secondary)
                 Spacer()
                 Button(action:{ withAnimation(.spring(response:0.3)){ showPicker.toggle() }}) {
                     HStack(spacing:4) {
                         Text(displayText).font(.subheadline).foregroundColor(AppTheme.textTertiary)
                         Image(systemName:showPicker ? "chevron.up":"chevron.down")
-                            .font(.caption2).foregroundColor(AppTheme.textTertiary)
+                            .font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
                     }
                 }
             }
@@ -3619,27 +3895,27 @@ struct WeekChartPanel: View {
             let isFuture = Calendar.current.startOfDay(for:entry.date) > Calendar.current.startOfDay(for:store.today)
             VStack(alignment:.leading, spacing:8) {
                 if isFuture {
-                    Text(store.t("未来日期","Future")).font(.caption).foregroundColor(AppTheme.textTertiary)
+                    Text(store.t("未来日期","Future")).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                 } else if let r = rev, r.isSubmitted {
                     if r.rating > 0 {
                         HStack(spacing:6) {
                             Text(["","😞","😶","🙂","🤍","✨"][r.rating]).font(.body)
                             Text(store.t(["","不太好","一般","还行","不错","很棒"][r.rating],
                                          ["","Rough","Okay","Alright","Good","Great"][r.rating]))
-                                .font(.caption).foregroundColor(AppTheme.textTertiary)
+                                .font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                         }
                     }
                     // 该日所有收获（日记 + 覆盖这天的周总结）
                     let allGains = store.allGainKeywords(for:[entry.date])
                     let allPlans = store.allPlanKeywords(for:[entry.date])
-                    if !allGains.isEmpty { kwRow(icon:"star.fill",color:AppTheme.accent,label:store.t("收获","Wins"),kws:allGains) }
-                    if !allPlans.isEmpty { kwRow(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t("计划","Plan"),kws:allPlans) }
-                    if !r.challengeKeywords.isEmpty { kwRow(icon:"exclamationmark.triangle.fill",color:AppTheme.gold,label:store.t("待决","Pending"),kws:r.challengeKeywords) }
+                    if !allGains.isEmpty { kwRow(icon:"star.fill",color:AppTheme.accent,label:store.t(key: L10n.wins),kws:allGains) }
+                    if !allPlans.isEmpty { kwRow(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t(key: L10n.plan),kws:allPlans) }
+                    if !r.challengeKeywords.isEmpty { kwRow(icon:"exclamationmark.triangle.fill",color:AppTheme.gold,label:store.t(key: L10n.pending),kws:r.challengeKeywords) }
                     if allGains.isEmpty && allPlans.isEmpty && r.challengeKeywords.isEmpty {
-                        Text(store.t("已打卡，暂无关键词","Checked in, no keywords")).font(.caption).foregroundColor(AppTheme.textTertiary)
+                        Text(store.t("已打卡，暂无关键词","Checked in, no keywords")).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                     }
                 } else {
-                    Text(store.t("暂无记录","No record")).font(.caption).foregroundColor(AppTheme.textTertiary)
+                    Text(store.t("暂无记录","No record")).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                 }
             }
         }
@@ -3701,13 +3977,13 @@ struct MonthChartPanel: View {
                     if rate > 0 { Text("\(Int(rate*100))%").font(.caption).foregroundColor(AppTheme.accent) }
                     if let m = ws?.mood, m > 0 { Text(["","😞","😶","🙂","🤍","✨"][m]).font(.caption) }
                 }
-                if !allGains.isEmpty { kwRow(icon:"star.fill",color:AppTheme.accent,label:store.t("收获","Wins"),kws:allGains) }
-                if !allPlans.isEmpty { kwRow(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t("计划","Plan"),kws:allPlans) }
+                if !allGains.isEmpty { kwRow(icon:"star.fill",color:AppTheme.accent,label:store.t(key: L10n.wins),kws:allGains) }
+                if !allPlans.isEmpty { kwRow(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t(key: L10n.plan),kws:allPlans) }
                 if let ws = ws, !ws.challengeKeywords.isEmpty {
-                    kwRow(icon:"exclamationmark.triangle.fill",color:AppTheme.gold,label:store.t("待决","Pending"),kws:ws.challengeKeywords)
+                    kwRow(icon:"exclamationmark.triangle.fill",color:AppTheme.gold,label:store.t(key: L10n.pending),kws:ws.challengeKeywords)
                 }
                 if allGains.isEmpty && allPlans.isEmpty {
-                    Text(store.t("本周暂无总结","No weekly summary")).font(.caption).foregroundColor(AppTheme.textTertiary)
+                    Text(store.t("本周暂无总结","No weekly summary")).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                 }
             }
         }
@@ -3772,10 +4048,10 @@ struct YearChartPanel: View {
                         }
                     }
                 }
-                if !allGains.isEmpty { kwRow(icon:"star.fill",color:AppTheme.accent,label:store.t("收获","Wins"),kws:allGains) }
-                if !allPlans.isEmpty { kwRow(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t("计划","Plan"),kws:allPlans) }
+                if !allGains.isEmpty { kwRow(icon:"star.fill",color:AppTheme.accent,label:store.t(key: L10n.wins),kws:allGains) }
+                if !allPlans.isEmpty { kwRow(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t(key: L10n.plan),kws:allPlans) }
                 if allGains.isEmpty && allPlans.isEmpty {
-                    Text(store.t("本月暂无总结","No monthly summary")).font(.caption).foregroundColor(AppTheme.textTertiary)
+                    Text(store.t("本月暂无总结","No monthly summary")).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                 }
             }
         }
@@ -4002,7 +4278,7 @@ struct UnifiedBarChart: View {
                     RoundedRectangle(cornerRadius:5)
                         .fill(val<0.5 && val>0 ? AppTheme.danger.opacity(0.5):isAccent ? AppTheme.accent:val>0 ? AppTheme.accent.opacity(0.35):AppTheme.bg2)
                         .frame(height:max(4,val*72))
-                    Text(data[i].0).font(.caption2).foregroundColor(AppTheme.textTertiary)
+                    Text(data[i].0).font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
                 }.frame(maxWidth:.infinity)
             }
         }.frame(height:110)
@@ -4023,7 +4299,7 @@ struct AISummaryCard: View {
             }
             VStack(alignment:.leading, spacing:8){
                 ForEach(Array(lines.enumerated()), id:\.offset){ _, line in
-                    Text(line).font(.subheadline).foregroundColor(AppTheme.textSecondary).lineSpacing(4)
+                    Text(line).font(.system(size: DSTSize.body, weight: .regular)).misty(.secondary).lineSpacing(4)
                 }
             }
         }.padding(16).background(AppTheme.bg1).cornerRadius(16)
@@ -4040,15 +4316,15 @@ struct LowCompletionCard: View {
                 Image(systemName:"exclamationmark.circle").foregroundColor(AppTheme.danger)
                 Text(store.t("有 \(lowDays.count) 天完成度较低","Low completion: \(lowDays.count) days")).font(.subheadline).foregroundColor(AppTheme.danger)
                 Spacer()
-                Button(action:{withAnimation{show.toggle()}}){Text(show ? store.t("收起","Hide"):store.t("记录原因","Record")).font(.caption).foregroundColor(AppTheme.textTertiary)}
+                Button(action:{withAnimation{show.toggle()}}){Text(show ? store.t("收起","Hide"):store.t("记录原因","Record")).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)}
             }
-            ForEach(lowDays,id:\.0){d in HStack{Text(d.0).font(.caption).foregroundColor(AppTheme.textTertiary);Text("\(Int(d.1*100))%").font(.caption).foregroundColor(AppTheme.danger);Spacer()}}
+            ForEach(lowDays,id:\.0){d in HStack{Text(d.0).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary);Text("\(Int(d.1*100))%").font(.caption).foregroundColor(AppTheme.danger);Spacer()}}
             if show{
                 ZStack(alignment:.topLeading){
                     if reason.isEmpty{Text(store.t("原因…","Reason…")).foregroundColor(AppTheme.textTertiary).font(.subheadline).padding(.horizontal,12).padding(.vertical,10)}
                     TextEditor(text:$reason).frame(minHeight:60).padding(8).scrollContentBackground(.hidden).foregroundColor(AppTheme.textPrimary).font(.subheadline)
                 }.background(AppTheme.bg2).cornerRadius(10).overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border1,lineWidth:1))
-                Button(store.t("保存","Save")){show=false}.frame(maxWidth:.infinity).padding(.vertical,9).background(AppTheme.accent).cornerRadius(10).foregroundColor(AppTheme.bg0).fontWeight(.medium)
+                Button(store.t(key: L10n.save)){show=false}.frame(maxWidth:.infinity).padding(.vertical,9).background(AppTheme.accent).cornerRadius(10).foregroundColor(AppTheme.bg0).fontWeight(.medium)
             }
         }.padding(13).background(AppTheme.danger.opacity(0.06)).cornerRadius(12).overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.danger.opacity(0.2),lineWidth:1))
     }
@@ -4063,10 +4339,10 @@ struct GoalProgressCard: View {
     var body: some View {
         VStack(alignment:.leading, spacing:12) {
             Text(store.t("目标进度","Goal Progress"))
-                .font(.caption).foregroundColor(AppTheme.textTertiary).kerning(1.5)
+                .font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary).kerning(1.5)
             if store.goals.isEmpty {
                 Text(store.t("暂无目标","No goals yet"))
-                    .font(.caption).foregroundColor(AppTheme.textTertiary)
+                    .font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                     .frame(maxWidth:.infinity).padding(.vertical,8)
             } else {
                 ForEach(store.goals) { goal in
@@ -4074,7 +4350,7 @@ struct GoalProgressCard: View {
                         HStack {
                             HStack(spacing:5) {
                                 Circle().fill(goal.color).frame(width:6, height:6)
-                                Text(goal.title).font(.subheadline).foregroundColor(AppTheme.textSecondary)
+                                Text(goal.title).font(.system(size: DSTSize.body, weight: .regular)).misty(.secondary)
                             }
                             Spacer()
                             if goal.goalType == .longterm {
@@ -4329,7 +4605,7 @@ struct MergedSummaryCard: View {
                     // Row 1
                     HStack(spacing:0) {
                         MetricTile(value:"\(completionPct)%",
-                            label:store.t("完成率","Completion"), color:AppTheme.accent,
+                            label:store.t(key: L10n.completionRate), color:AppTheme.accent,
                             extraText:completionPct >= 85 ? store.t("保持得很好","Excellent") :
                                       completionPct >= 60 ? store.t("节奏稳定","Steady") :
                                       store.t("继续坚持","Keep going"))
@@ -4349,15 +4625,15 @@ struct MergedSummaryCard: View {
                     // Row 2
                     HStack(spacing:0) {
                         MetricTile(value:"\(cs.resolved.count)",
-                            label:store.t("已解决","Resolved"), color:accentGreen,
+                            label:store.t(key: L10n.resolved), color:accentGreen,
                             noteItems: resolvedEntries.map { (kw:$0.keyword, note:$0.resolvedNote) })
                         vDivider
                         MetricTile(value:"\(gainKW.count)",
-                            label:store.t("收获","Wins"), color:accentGreen,
+                            label:store.t(key: L10n.wins), color:accentGreen,
                             items: gainKW)
                         vDivider
                         MetricTile(value:"\(planKW.count)",
-                            label:store.t("计划","Plans"), color:accentPurple,
+                            label:store.t(key: L10n.plans), color:accentPurple,
                             items: planKW)
                     }
                 }
@@ -4440,7 +4716,7 @@ struct MonthlyDigestCard: View {
         VStack(alignment:.leading, spacing:14) {
             HStack {
                 Text(store.t("本月每周情况","This Month by Week"))
-                    .font(.caption).foregroundColor(AppTheme.textTertiary).kerning(1.5)
+                    .font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary).kerning(1.5)
                 Spacer()
                 // 未解决困难数
                 let unresolved = store.allSubChallengeKeywords(type:1, dates:store.monthDates())
@@ -4508,11 +4784,11 @@ struct MonthlyDigestCard: View {
                         if isExp, let ws = ws {
                             VStack(alignment:.leading, spacing:8) {
                                 if !gainKW.isEmpty {
-                                    weekMiniKWRow(icon:"star.fill",color:AppTheme.accent,label:store.t("收获","Wins"),kws:gainKW)
+                                    weekMiniKWRow(icon:"star.fill",color:AppTheme.accent,label:store.t(key: L10n.wins),kws:gainKW)
                                 }
                                 if !challengeKW.isEmpty {
                                     VStack(alignment:.leading,spacing:6) {
-                                        weekMiniKWRow(icon:"exclamationmark.triangle.fill",color:AppTheme.gold,label:store.t("待决","Pending"),kws:challengeKW)
+                                        weekMiniKWRow(icon:"exclamationmark.triangle.fill",color:AppTheme.gold,label:store.t(key: L10n.pending),kws:challengeKW)
                                         ForEach(challengeKW, id:\.self) { kw in
                                             let solved = ws.resolvedChallenges.contains(kw)
                                             Button(action:{ store.toggleResolvedChallenge(type:0, label:we.periodLabel, keyword:kw) }) {
@@ -4534,7 +4810,7 @@ struct MonthlyDigestCard: View {
                                     }
                                 }
                                 if !nextKW.isEmpty {
-                                    weekMiniKWRow(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t("计划","Plan"),kws:nextKW)
+                                    weekMiniKWRow(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t(key: L10n.plan),kws:nextKW)
                                 }
                             }
                             .padding(.leading,36).padding(.bottom,10).padding(.top,2)
@@ -4588,7 +4864,7 @@ struct YearlyDigestCard: View {
         VStack(alignment:.leading, spacing:14) {
             HStack {
                 Text(store.t("本年每月情况","This Year by Month"))
-                    .font(.caption).foregroundColor(AppTheme.textTertiary).kerning(1.5)
+                    .font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary).kerning(1.5)
                 Spacer()
                 let unresolved = store.allSubChallengeKeywords(type:2, dates:store.yearDates())
                 if !unresolved.isEmpty {
@@ -4651,11 +4927,11 @@ struct YearlyDigestCard: View {
                         if isExp, let ms = ms {
                             VStack(alignment:.leading, spacing:8) {
                                 if !gainKW.isEmpty {
-                                    monthMiniKWRow(icon:"star.fill",color:AppTheme.accent,label:store.t("收获","Wins"),kws:gainKW)
+                                    monthMiniKWRow(icon:"star.fill",color:AppTheme.accent,label:store.t(key: L10n.wins),kws:gainKW)
                                 }
                                 if !challengeKW.isEmpty {
                                     VStack(alignment:.leading,spacing:6) {
-                                        monthMiniKWRow(icon:"exclamationmark.triangle.fill",color:AppTheme.gold,label:store.t("待决","Pending"),kws:challengeKW)
+                                        monthMiniKWRow(icon:"exclamationmark.triangle.fill",color:AppTheme.gold,label:store.t(key: L10n.pending),kws:challengeKW)
                                         ForEach(challengeKW, id:\.self) { kw in
                                             let solved = ms.resolvedChallenges.contains(kw)
                                             Button(action:{ store.toggleResolvedChallenge(type:1, label:me.periodLabel, keyword:kw) }) {
@@ -4677,7 +4953,7 @@ struct YearlyDigestCard: View {
                                     }
                                 }
                                 if let nextKW = ms.nextKeywords as [String]?, !nextKW.isEmpty {
-                                    monthMiniKWRow(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t("计划","Plan"),kws:nextKW)
+                                    monthMiniKWRow(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t(key: L10n.plan),kws:nextKW)
                                 }
                             }
                             .padding(.leading,36).padding(.bottom,10).padding(.top,2)
@@ -4736,13 +5012,13 @@ struct DebugDateRow: View {
                 Image(systemName:"calendar.badge.exclamationmark")
                     .font(.caption).foregroundColor(AppTheme.danger.opacity(0.7))
                 Text(store.t("模拟日期（调试）","Debug Date"))
-                    .font(.subheadline).foregroundColor(AppTheme.textSecondary)
+                    .font(.system(size: DSTSize.body, weight: .regular)).misty(.secondary)
                 Spacer()
                 Button(action:{ withAnimation(.spring(response:0.3)){ showPicker.toggle() }}) {
                     HStack(spacing:4) {
                         Text(displayText).font(.caption).foregroundColor(AppTheme.danger.opacity(0.8))
                         Image(systemName:showPicker ? "chevron.up":"chevron.down")
-                            .font(.caption2).foregroundColor(AppTheme.textTertiary)
+                            .font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
                     }
                 }
             }
@@ -4761,11 +5037,11 @@ struct DebugDateRow: View {
                             store.simulatedDate = nil
                             withAnimation { showPicker = false }
                         }
-                        .font(.caption).foregroundColor(AppTheme.textTertiary)
+                        .font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                         .padding(.horizontal,12).padding(.vertical,6)
                         .background(AppTheme.bg2).cornerRadius(8)
                         Spacer()
-                        Button(store.t("确认","Confirm")) {
+                        Button(store.t(key: L10n.confirm)) {
                             withAnimation { showPicker = false }
                         }
                         .font(.caption).fontWeight(.semibold)
@@ -4829,7 +5105,7 @@ struct WeeklyDigestCard: View {
         VStack(alignment:.leading, spacing:14) {
             // 标题
             HStack {
-                Text(store.t("本周每日情况","This Week")).font(.caption).foregroundColor(AppTheme.textTertiary).kerning(1.5)
+                Text(store.t("本周每日情况","This Week")).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary).kerning(1.5)
                 Spacer()
             }
 
@@ -4892,12 +5168,12 @@ struct WeeklyDigestCard: View {
                             VStack(alignment:.leading, spacing:8) {
                                 if !row.gainKW.isEmpty {
                                     miniKWRow(icon:"star.fill", color:AppTheme.accent,
-                                              label:store.t("收获","Wins"), kws:row.gainKW)
+                                              label:store.t(key: L10n.wins), kws:row.gainKW)
                                 }
                                 if !row.challengeKW.isEmpty {
                                     VStack(alignment:.leading, spacing:6) {
                                         miniKWRow(icon:"exclamationmark.triangle.fill", color:AppTheme.gold,
-                                                  label:store.t("待决","Pending"), kws:row.challengeKW)
+                                                  label:store.t(key: L10n.pending), kws:row.challengeKW)
                                         // 困难解决状态
                                         ForEach(row.challengeKW, id:\.self) { kw in
                                             let solved = weekSummary?.resolvedChallenges.contains(kw) ?? false
@@ -4908,7 +5184,7 @@ struct WeeklyDigestCard: View {
                                                     Text(kw).font(.caption).foregroundColor(solved ? AppTheme.textTertiary : AppTheme.textSecondary)
                                                         .strikethrough(solved, color:AppTheme.textTertiary)
                                                     Spacer()
-                                                    Text(solved ? store.t("已解决","Resolved") : store.t("待解决","Pending"))
+                                                    Text(solved ? store.t(key: L10n.resolved) : store.t("待解决","Pending"))
                                                         .font(.system(size:9)).foregroundColor(solved ? AppTheme.accent : AppTheme.gold)
                                                 }
                                                 .padding(.horizontal,10).padding(.vertical,5)
@@ -4921,7 +5197,7 @@ struct WeeklyDigestCard: View {
                                 if !row.tomorrowKW.isEmpty {
                                     miniKWRow(icon:"arrow.right.circle.fill",
                                               color:Color(red:0.780,green:0.500,blue:0.700),
-                                              label:store.t("明日","Tomorrow"), kws:row.tomorrowKW)
+                                              label:store.t(key: L10n.tomorrowLabel), kws:row.tomorrowKW)
                                 }
                             }
                             .padding(.leading,32).padding(.bottom,10).padding(.top,2)
@@ -5134,7 +5410,7 @@ struct PeriodSummaryCard: View {
                         Spacer()
                         if canMarkChallenges {
                             Text("\(resolvedCount)/\(subChallengeKW.count)")
-                                .font(.caption2).foregroundColor(AppTheme.textTertiary)
+                                .font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
                         }
                         Image(systemName:challengeTrackerOpen ? "chevron.up":"chevron.down")
                             .font(.system(size:8)).foregroundColor(AppTheme.textTertiary)
@@ -5222,7 +5498,7 @@ struct PeriodSummaryCard: View {
         VStack(alignment:.leading, spacing:14) {
             // 整体心情
             VStack(alignment:.leading, spacing:7) {
-                Text(store.t("整体心情","Overall mood")).font(.caption2).foregroundColor(AppTheme.textTertiary)
+                Text(store.t("整体心情","Overall mood")).font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
                 HStack(spacing:8) {
                     ForEach(1...5, id:\.self) { i in
                         Button(action:{draftMood=i}) {
@@ -5248,7 +5524,7 @@ struct PeriodSummaryCard: View {
                 hint:store.t("3-5词，如：每天冥想、完成项目","3-5 keywords e.g. 'daily meditate'"),
                 keywords:$draftNextKW, detail:$draftNextDetail, store:store)
             HStack {
-                Button(store.t("取消","Cancel")){ editing=false }.font(.caption).foregroundColor(AppTheme.textTertiary)
+                Button(store.t(key: L10n.cancel)){ editing=false }.font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                 Spacer()
                 Button(action:submit) {
                     HStack(spacing:5) {
@@ -5276,7 +5552,7 @@ struct PeriodSummaryCard: View {
                         .font(.system(size:11)).foregroundColor(AppTheme.textTertiary.opacity(0.7))
                 }
                 Spacer()
-                Image(systemName:"chevron.right").font(.caption2).foregroundColor(AppTheme.textTertiary)
+                Image(systemName:"chevron.right").font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
             }
             .padding(14).background(AppTheme.accent.opacity(0.04)).cornerRadius(12)
             .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.accent.opacity(0.12),lineWidth:1))
@@ -5350,7 +5626,7 @@ struct ChallengeKeywordSection: View {
     }
     var titleText: String {
         let prefix = periodLabel.isEmpty ? store.t("今日","Today's") : periodLabel
-        return prefix + store.t("待决","Pending")
+        return prefix + store.t(key: L10n.pending)
     }
 
     var body: some View {
@@ -5382,7 +5658,7 @@ struct ChallengeKeywordSection: View {
     @ViewBuilder var chipsOrHint: some View {
         if todayNewKW.isEmpty {
             Text(store.t("记录待决事项和挑战（如：完成报告、解决bug）","Log pending items (e.g. finish report, fix bug)"))
-                .font(.caption2).foregroundColor(AppTheme.textTertiary).lineSpacing(2)
+                .font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary).lineSpacing(2)
         } else {
             FlowLayout(spacing:6) {
                 ForEach(todayNewKW, id:\.self) { kw in
@@ -5436,7 +5712,7 @@ struct ChallengeKeywordSection: View {
     @ViewBuilder var inputRow: some View {
         HStack(spacing:8) {
             TextField(store.t("输入词语，回车添加","Type keyword, hit return"), text:$inputText)
-                .font(.subheadline).foregroundColor(AppTheme.textPrimary)
+                .font(.system(size: DSTSize.body, weight: .regular)).misty(.primary)
                 .focused($inputFocused)
                 .onSubmit { addKW() }
                 .padding(.horizontal,11).padding(.vertical,9)
@@ -5499,7 +5775,7 @@ struct UnifiedChallengeSection: View {
 
             if todayKW.isEmpty {
                 Text(store.t("记录待决事项，自动进入追踪","Log pending items to track"))
-                    .font(.caption2).foregroundColor(AppTheme.textTertiary).lineSpacing(2)
+                    .font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary).lineSpacing(2)
             } else {
                 FlowLayout(spacing:6) {
                     ForEach(todayKW, id:\.self) { kw in
@@ -5551,7 +5827,7 @@ struct UnifiedChallengeSection: View {
             // 输入框：新增困难 → 写入今日 challengeKeywords
             HStack(spacing:8) {
                 TextField(store.t("新增待决/困难，回车确认","Add pending item, return"), text:$inputText)
-                    .font(.subheadline).foregroundColor(AppTheme.textPrimary)
+                    .font(.system(size: DSTSize.body, weight: .regular)).misty(.primary)
                     .focused($inputFocused)
                     .onSubmit { addKW() }
                     .padding(.horizontal,11).padding(.vertical,9)
@@ -5618,7 +5894,7 @@ struct PeriodKeywordField: View {
 
             // 已添加的关键词 chips（空时显示提示）
             if keywords.isEmpty {
-                Text(hint).font(.caption2).foregroundColor(AppTheme.textTertiary).lineSpacing(2)
+                Text(hint).font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary).lineSpacing(2)
             } else {
                 FlowLayout(spacing:6) {
                     ForEach(keywords, id:\.self) { kw in
@@ -5638,7 +5914,7 @@ struct PeriodKeywordField: View {
             // 输入框（与 KeywordInputSection 完全一致）
             HStack(spacing:8) {
                 TextField(store.t("输入词语，回车添加","Type keyword, hit return"), text:$input)
-                    .font(.subheadline).foregroundColor(AppTheme.textPrimary)
+                    .font(.system(size: DSTSize.body, weight: .regular)).misty(.primary)
                     .focused($focused)
                     .onSubmit { addKW() }
                     .padding(.horizontal,11).padding(.vertical,9)
@@ -5662,7 +5938,7 @@ struct PeriodKeywordField: View {
                 ZStack(alignment:.topLeading) {
                     if detail.isEmpty {
                         Text(store.t("可以补充更多细节…","Add more details if needed…"))
-                            .font(.caption).foregroundColor(AppTheme.textTertiary).padding(.horizontal,9).padding(.vertical,8)
+                            .font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary).padding(.horizontal,9).padding(.vertical,8)
                     }
                     TextEditor(text:$detail)
                         .frame(minHeight:52).padding(4).scrollContentBackground(.hidden)
@@ -5747,7 +6023,7 @@ struct JournalListView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement:.navigationBarTrailing) {
-                    Button(store.t("完成","Done")){ dismiss() }.foregroundColor(AppTheme.accent)
+                    Button(store.t(key: L10n.done)){ dismiss() }.foregroundColor(AppTheme.accent)
                 }
             }
         }
@@ -5761,8 +6037,8 @@ struct JournalListView: View {
     var tabs: [TabItem] { [
         .init(sf:"chart.bar",           filledSF:"chart.bar.fill",           label:store.t("综合","Overview")),
         .init(sf:"lightbulb",           filledSF:"lightbulb.fill",           label:store.t("心得","Insights")),
-        .init(sf:"star",                filledSF:"star.fill",                label:store.t("收获","Wins")),
-        .init(sf:"arrow.right.circle",  filledSF:"arrow.right.circle.fill",  label:store.t("计划","Plans")),
+        .init(sf:"star",                filledSF:"star.fill",                label:store.t(key: L10n.wins)),
+        .init(sf:"arrow.right.circle",  filledSF:"arrow.right.circle.fill",  label:store.t(key: L10n.plans)),
     ]}
 }
 
@@ -5903,11 +6179,11 @@ struct OverviewTab: View {
             VStack(alignment:.leading, spacing:12) {
                 LazyVGrid(columns:[GridItem(.flexible()),GridItem(.flexible())], spacing:8) {
                     ovCard(value:rate>0 ? "\(Int(rate*100))%" : "—",
-                           label:store.t("完成率","Completion"),
+                           label:store.t(key: L10n.completionRate),
                            badge:rate>=0.8 ? "🏆" : rate>=0.6 ? "✨" : rate>0 ? "💪" : "",
                            color:AppTheme.accent)
                     ovCard(value:"\(taskD)/\(taskT)",
-                           label:store.t("任务","Tasks"),
+                           label:store.t(key: L10n.tasks),
                            badge:store.t("\(goalC)目标","\(goalC) goals"),
                            color:AppTheme.textSecondary)
                     ovCard(value:mood>0 ? String(format:"%.1f",mood) : "—",
@@ -6289,7 +6565,7 @@ struct HistoryKWTab: View {
                 Text("\(sorted.count) \(store.t("词","words"))").font(.system(size:10)).foregroundColor(AppTheme.textTertiary)
             }
             if sorted.isEmpty {
-                Text(store.t("暂无数据","No data yet")).font(.caption).foregroundColor(AppTheme.textTertiary)
+                Text(store.t("暂无数据","No data yet")).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
             } else {
                 FlowLayout(spacing:5) {
                     ForEach(sorted.prefix(24), id:\.self) { kw in
@@ -6331,7 +6607,7 @@ struct HistoryKWTab: View {
                             }
                         }
                     }
-                    Image(systemName:isOpen ? "chevron.up":"chevron.down").font(.caption2).foregroundColor(AppTheme.textTertiary)
+                    Image(systemName:isOpen ? "chevron.up":"chevron.down").font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
                 }
                 .padding(.vertical,10).padding(.horizontal,16)
                 .background(AppTheme.bg0)
@@ -6397,7 +6673,7 @@ struct HistoryKWTab: View {
                 }}) {
                     HStack(spacing:5) {
                         Rectangle().fill(color.opacity(0.2)).frame(width:2,height:12).cornerRadius(1)
-                        Text(we.label).font(.caption).foregroundColor(AppTheme.textTertiary)
+                        Text(we.label).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                         kwBadge(kws.count)
                         Spacer()
                         if !isOpen && !kws.isEmpty {
@@ -6432,7 +6708,7 @@ struct HistoryKWTab: View {
         if !kws.isEmpty {
             HStack(alignment:.top, spacing:8) {
                 Text(formatDate(de.date, format:store.language == .chinese ? "M/d EEE":"EEE M/d", lang:store.language))
-                    .font(.caption2).foregroundColor(AppTheme.textTertiary)
+                    .font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
                     .frame(width:58,alignment:.leading).padding(.top,3)
                 FlowLayout(spacing:4) {
                     ForEach(kws, id:\.self) { kw in
@@ -6472,7 +6748,7 @@ struct HistoryKWTab: View {
         NavigationView {
             VStack(alignment:.leading, spacing:12) {
                 Text(formatDate(date, format:store.language == .chinese ? "yyyy年M月d日":"MMM d, yyyy", lang:store.language))
-                    .font(.caption).foregroundColor(AppTheme.textTertiary).padding(.horizontal,16)
+                    .font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary).padding(.horizontal,16)
                 FlowLayout(spacing:8) {
                     ForEach(editKWs, id:\.self) { kw in
                         HStack(spacing:4) {
@@ -6503,9 +6779,9 @@ struct HistoryKWTab: View {
                                      kwType == .gain ? "Edit Wins":"Edit Plans"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement:.cancellationAction){ Button(store.t("取消","Cancel")){ editingDate=nil } }
+                ToolbarItem(placement:.cancellationAction){ Button(store.t(key: L10n.cancel)){ editingDate=nil } }
                 ToolbarItem(placement:.confirmationAction){
-                    Button(store.t("保存","Save")){
+                    Button(store.t(key: L10n.save)){
                         if kwType == .gain { store.replaceGainKeywords(editKWs, for:date) }
                         else               { store.replacePlanKeywords(editKWs, for:date) }
                         editingDate=nil
@@ -6529,28 +6805,31 @@ struct SummaryContext {
     let sheetTitle: String
 
     static func forDay(_ date: Date, store: AppStore) -> SummaryContext {
-        let isCN = store.language == .chinese
+        let lang = store.language
         let fmt = DateFormatter()
-        fmt.locale = Locale(identifier: isCN ? "zh_CN" : "en_US")
-        fmt.dateFormat = isCN ? "M月d日" : "MMM d"
+        fmt.locale = Locale(identifier: lang.localeIdentifier)
+        switch lang {
+        case .chinese, .japanese, .korean: fmt.dateFormat = "M月d日"
+        case .english, .spanish:           fmt.dateFormat = "MMM d"
+        }
         return SummaryContext(
             periodType: -1,
             periodLabel: fmt.string(from: date),
             dates: [date],
-            sheetTitle: isCN ? "今日智能总结" : "Today's Summary"
+            sheetTitle: L10n.dailySummaryTitle(lang)
         )
     }
     static func forWeek(label: String, dates: [Date], store: AppStore) -> SummaryContext {
         SummaryContext(periodType:0, periodLabel:label, dates:dates,
-                       sheetTitle: store.language == .chinese ? "本周智能总结" : "Weekly Summary")
+                       sheetTitle: L10n.weeklySummaryTitle(store.language))
     }
     static func forMonth(label: String, dates: [Date], store: AppStore) -> SummaryContext {
         SummaryContext(periodType:1, periodLabel:label, dates:dates,
-                       sheetTitle: store.language == .chinese ? "本月智能总结" : "Monthly Summary")
+                       sheetTitle: L10n.monthlySummaryTitle(store.language))
     }
     static func forYear(label: String, dates: [Date], store: AppStore) -> SummaryContext {
         SummaryContext(periodType:2, periodLabel:label, dates:dates,
-                       sheetTitle: store.language == .chinese ? "年度智能总结" : "Annual Summary")
+                       sheetTitle: L10n.yearlySummaryTitle(store.language))
     }
 }
 
@@ -6617,9 +6896,7 @@ struct SmartSummarySheet: View {
                         // 完成率
                         VStack(spacing:4) {
                             Text("\(completionPct)%")
-                                .font(.system(size:28, weight:.light, design:.rounded))
-                                .foregroundColor(completionPct >= 80 ? accentGreen :
-                                                 completionPct >= 50 ? AppTheme.accent : AppTheme.gold)
+                                .dsNumberLarge(color: completionPct >= 80 ? accentGreen : completionPct >= 50 ? AppTheme.accent : AppTheme.gold)
                             Text(store.t("完成率","Done"))
                                 .font(.system(size:10)).foregroundColor(AppTheme.textTertiary)
                             Text(completionPct >= 80 ? "🏆" : completionPct >= 60 ? "✨" : completionPct > 0 ? "💪" : "—")
@@ -6639,22 +6916,22 @@ struct SmartSummarySheet: View {
                     VStack(spacing:0) {
                         HStack(spacing:0) {
                             // 成就 = 收获关键词数量（gainKW）
-                            statCell("\(gainKW.count)", store.t("成就","Wins"), accentGreen)
+                            statCell("\(gainKW.count)", store.t(key: L10n.wins), accentGreen)
                             statDivider
-                            statCell("\(cs.active.count)", store.t("待决","Pending"),
+                            statCell("\(cs.active.count)", store.t(key: L10n.pending),
                                      cs.active.isEmpty ? accentGreen : AppTheme.gold)
                             statDivider
-                            statCell("\(cs.resolved.count)", store.t("已解决","Resolved"), accentGreen)
+                            statCell("\(cs.resolved.count)", store.t(key: L10n.resolved), accentGreen)
                         }
                         Divider().background(AppTheme.border0.opacity(0.5)).padding(.horizontal,8)
                         HStack(spacing:0) {
-                            statCell("\(ts.done)/\(ts.total)", store.t("任务","Tasks"), AppTheme.accent)
+                            statCell("\(ts.done)/\(ts.total)", store.t(key: L10n.tasks), AppTheme.accent)
                             statDivider
-                            statCell("\(planKW.count)", store.t("计划","Plans"), accentPurple)
+                            statCell("\(planKW.count)", store.t(key: L10n.plans), accentPurple)
                             statDivider
                             let activeDays = ctx.dates.filter{ store.completionRate(for:$0) > 0 }.count
                             statCell(ctx.dates.count <= 1 ? "—" : "\(activeDays)",
-                                     store.t("活跃天","Active"), AppTheme.textSecondary)
+                                     store.t(key: L10n.activeDays), AppTheme.textSecondary)
                         }
                     }
                     .background(AppTheme.bg1)
@@ -6663,10 +6940,10 @@ struct SmartSummarySheet: View {
                     .padding(.horizontal,16)
 
                     // ── 收获词云 ────────────────────────────
-                    if !gainKW.isEmpty { kwPanel(accentGreen, "star.fill", store.t("收获","Wins"), gainKW) }
+                    if !gainKW.isEmpty { kwPanel(accentGreen, "star.fill", store.t(key: L10n.wins), gainKW) }
 
                     // ── 计划词云 ────────────────────────────
-                    if !planKW.isEmpty { kwPanel(accentPurple, "arrow.right.circle.fill", store.t("计划","Plans"), planKW) }
+                    if !planKW.isEmpty { kwPanel(accentPurple, "arrow.right.circle.fill", store.t(key: L10n.plans), planKW) }
 
                     // ── 智能洞察 ────────────────────────────
                     VStack(alignment:.leading, spacing:10) {
@@ -6674,7 +6951,7 @@ struct SmartSummarySheet: View {
                             Image(systemName:"sparkles")
                                 .font(.system(size:11, weight:.medium))
                                 .foregroundColor(AppTheme.accent)
-                            Text(store.t("智能洞察","Smart Insight"))
+                            Text(store.t(key: L10n.smartInsight))
                                 .font(.system(size:12, weight:.semibold))
                                 .foregroundColor(AppTheme.accent)
                             Spacer()
@@ -6699,7 +6976,7 @@ struct SmartSummarySheet: View {
                                 HStack(spacing:5) {
                                     Image(systemName:"crown.fill")
                                         .font(.system(size:10))
-                                    Text(store.t("升级 Pro 获得 AI 个性化建议","Upgrade Pro for AI insights"))
+                                    Text(store.t(key: L10n.upgradePro))
                                         .font(.system(size:11, weight:.medium))
                                 }
                                 .foregroundColor(AppTheme.gold)
@@ -6737,7 +7014,7 @@ struct SmartSummarySheet: View {
             .navigationTitle(ctx.sheetTitle)
             .toolbar {
                 ToolbarItem(placement:.navigationBarTrailing) {
-                    Button(store.t("完成","Done")) { dismiss() }
+                    Button(store.t(key: L10n.done)) { dismiss() }
                         .foregroundColor(AppTheme.accent).fontWeight(.medium)
                 }
             }
@@ -6755,8 +7032,8 @@ struct SmartSummarySheet: View {
     @ViewBuilder func statCell(_ val:String, _ lbl:String, _ col:Color) -> some View {
         VStack(spacing:3) {
             Text(val)
-                .font(.system(size:17, weight:.light, design:.rounded))
-                .foregroundColor(col).monospacedDigit()
+                .font(.system(size: DSTSize.numberMid, weight: .medium, design: .rounded).monospacedDigit())
+                .foregroundColor(col.opacity(0.90))
             Text(lbl)
                 .font(.system(size:9)).foregroundColor(AppTheme.textTertiary)
         }
@@ -6801,8 +7078,8 @@ struct JournalEntryCard: View {
                 if entry.rating>0{let e=["😞","😶","🙂","🤍","✨"];Text(e[min(entry.rating-1,4)]).font(.body)}
             }
             if !entry.journalGains.isEmpty{JSnippet(icon:"star.fill",color:AppTheme.accent,label:store.t("收获","Learned"),text:entry.journalGains)}
-            if !entry.journalChallenges.isEmpty{JSnippet(icon:"exclamationmark.triangle.fill",color:AppTheme.gold,label:store.t("待决","Pending"),text:entry.journalChallenges)}
-            if !entry.journalTomorrow.isEmpty{JSnippet(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t("明日","Tomorrow"),text:entry.journalTomorrow)}
+            if !entry.journalChallenges.isEmpty{JSnippet(icon:"exclamationmark.triangle.fill",color:AppTheme.gold,label:store.t(key: L10n.pending),text:entry.journalChallenges)}
+            if !entry.journalTomorrow.isEmpty{JSnippet(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t(key: L10n.tomorrowLabel),text:entry.journalTomorrow)}
         }.padding(14).background(AppTheme.bg1).cornerRadius(14).overlay(RoundedRectangle(cornerRadius:14).stroke(AppTheme.border0,lineWidth:1))
     }
 }
@@ -6913,7 +7190,7 @@ struct InspireView: View {
                         if isLoadingOnline && showOnline {
                             VStack(spacing:8){
                                 ProgressView().tint(AppTheme.accent)
-                                Text(store.t("正在获取语录…","Fetching quote…")).font(.caption).foregroundColor(AppTheme.textTertiary)
+                                Text(store.t("正在获取语录…","Fetching quote…")).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary)
                             }.frame(height:80)
                         } else {
                             Text(displayText)
@@ -6997,7 +7274,7 @@ struct InspireView: View {
 
                         if onlineError && showOnline {
                             Text(store.t("网络语录获取失败，显示本地经典","Network unavailable, showing local quotes"))
-                                .font(.caption2).foregroundColor(AppTheme.textTertiary).multilineTextAlignment(.center)
+                                .font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary).multilineTextAlignment(.center)
                         }
 
                         if !pro.isPro && poolPosition >= ProStore.freeQuoteLimit && !showOnline {
@@ -7059,7 +7336,7 @@ struct InspireView: View {
                     let allSaved:[Any] = savedOnlineQuotes.map{$0 as Any} + Array(savedLocalIndices).sorted().map{$0 as Any}
                     if !allSaved.isEmpty {
                         VStack(alignment:.leading,spacing:10){
-                            Text(store.t("我的收藏","Saved")).font(.caption).foregroundColor(AppTheme.textTertiary).kerning(2)
+                            Text(store.t("我的收藏","Saved")).font(.system(size: DSTSize.caption, weight: .regular)).misty(.tertiary).kerning(2)
                             ForEach(savedOnlineQuotes){ q in
                                 savedRow(text:q.text, author:q.author, onTap:{})
                             }
@@ -7084,7 +7361,7 @@ struct InspireView: View {
                 }.padding(.top,10)
             }
             .background(AppTheme.bg0.ignoresSafeArea())
-            .navigationTitle(store.t("灵感","Inspire")).navigationBarTitleDisplayMode(.large)
+            .navigationTitle(store.t(key: L10n.inspire)).navigationBarTitleDisplayMode(.large)
             .onAppear{
                 // 初始化今日推送池
                 if dailyPool.isEmpty { refreshPool() }
@@ -7096,8 +7373,8 @@ struct InspireView: View {
         HStack(alignment:.top,spacing:10){
             Image(systemName:"heart.fill").font(.caption).foregroundColor(.pink).padding(.top,2)
             VStack(alignment:.leading,spacing:2){
-                Text(text.replacingOccurrences(of:"\n",with:" ")).font(.subheadline).foregroundColor(AppTheme.textSecondary).lineLimit(2)
-                Text("— \(author)").font(.caption2).foregroundColor(AppTheme.textTertiary)
+                Text(text.replacingOccurrences(of:"\n",with:" ")).font(.system(size: DSTSize.body, weight: .regular)).misty(.secondary).lineLimit(2)
+                Text("— \(author)").font(.system(size: DSTSize.micro, weight: .regular)).misty(.tertiary)
             };Spacer()
         }.padding(.horizontal,13).padding(.vertical,11)
         .background(AppTheme.bg1).cornerRadius(12)

@@ -293,13 +293,13 @@ struct SettingsSheet: View {
                                 Text("DailyNav Pro")
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundColor(AppTheme.textPrimary)
-                                Text(store.t("已激活订阅", "Active subscription"))
+                                Text(store.t(key: L10n.activeSubscription))
                                     .font(.system(size: 12))
                                     .foregroundColor(AppTheme.textSecondary)
                             }
                             Spacer()
                             Button(action: { pro.isPro = false }) {
-                                Text(store.t("取消", "Cancel"))
+                                Text(store.t(key: L10n.cancel))
                                     .font(.system(size: 12))
                                     .foregroundColor(AppTheme.textTertiary)
                                     .padding(.horizontal, 12).padding(.vertical, 6)
@@ -326,10 +326,10 @@ struct SettingsSheet: View {
                                         .foregroundColor(AppTheme.gold)
                                 }
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(store.t("升级到 Pro", "Upgrade to Pro"))
+                                    Text(store.t(key: L10n.upgradePro))
                                         .font(.system(size: 14, weight: .semibold))
                                         .foregroundColor(AppTheme.textPrimary)
-                                    Text(store.t("7 天免费体验", "7-day free trial"))
+                                    Text(store.t(key: L10n.sevenDayTrial))
                                         .font(.system(size: 11))
                                         .foregroundColor(AppTheme.textTertiary)
                                 }
@@ -349,7 +349,7 @@ struct SettingsSheet: View {
                     }
 
                     // ── 语言选择 ─────────────────────────────────
-                    SettingsSection(title: store.t("语言", "Language")) {
+                    SettingsSection(title: store.t(key: L10n.language)) {
                         VStack(spacing: 0) {
                             ForEach(AppLanguage.allCases, id: \.self) { lang in
                                 LanguageRow(
@@ -359,6 +359,7 @@ struct SettingsSheet: View {
                                         withAnimation(.easeInOut(duration: 0.22)) {
                                             store.language = lang
                                         }
+                                        store.logCurrentLocale()  // [DEBUG] prints to console
                                     }
                                 )
                                 if lang != AppLanguage.allCases.last {
@@ -374,13 +375,13 @@ struct SettingsSheet: View {
                     }
 
                     // ── 操作列表 ─────────────────────────────────
-                    SettingsSection(title: store.t("支持", "Support")) {
+                    SettingsSection(title: store.t(key: L10n.support)) {
                         VStack(spacing: 0) {
-                            SRow2(icon: "star", label: store.t("给我们评分", "Rate This App"), action: {})
+                            SRow2(icon: "star", label: store.t(key: L10n.rateUs), action: {})
                             SRowDivider()
-                            SRow2(icon: "envelope", label: store.t("联系我们", "Contact Us"), action: {})
+                            SRow2(icon: "envelope", label: store.t(key: L10n.contactUs), action: {})
                             SRowDivider()
-                            SRow2(icon: "doc.text", label: store.t("隐私政策", "Privacy Policy"), action: {})
+                            SRow2(icon: "doc.text", label: store.t(key: L10n.privacyPolicy), action: {})
                             SRowDivider()
                             SRow2(icon: "info.circle", label: "Version 1.0.0", action: nil)
                         }
@@ -390,17 +391,17 @@ struct SettingsSheet: View {
                     }
 
                     // ── Coming Soon ──────────────────────────────
-                    SettingsSection(title: store.t("即将推出", "Coming Soon")) {
+                    SettingsSection(title: store.t(key: L10n.comingSoon)) {
                         VStack(spacing: 0) {
-                            ComingSoonRow(icon: "icloud", label: store.t("云端同步", "Cloud Sync"))
+                            ComingSoonRow(icon: "icloud", label: store.t(key: L10n.cloudSync))
                             SRowDivider()
-                            ComingSoonRow(icon: "sparkles", label: store.t("AI 智能规划", "AI Task Planning"))
+                            ComingSoonRow(icon: "sparkles", label: store.t(key: L10n.aiPlanning))
                             SRowDivider()
-                            ComingSoonRow(icon: "timer", label: store.t("专注模式", "Focus Mode"))
+                            ComingSoonRow(icon: "timer", label: store.t(key: L10n.focusMode))
                             SRowDivider()
-                            ComingSoonRow(icon: "rectangle.on.rectangle", label: store.t("桌面小组件", "Home Widget"))
+                            ComingSoonRow(icon: "rectangle.on.rectangle", label: store.t(key: L10n.homeWidget))
                             SRowDivider()
-                            ComingSoonRow(icon: "square.and.arrow.up", label: store.t("数据导出", "Export Data"))
+                            ComingSoonRow(icon: "square.and.arrow.up", label: store.t(key: L10n.exportData))
                         }
                         .background(AppTheme.bg1)
                         .cornerRadius(14)
@@ -413,11 +414,11 @@ struct SettingsSheet: View {
                 .padding(.top, 8)
             }
             .background(AppTheme.bg0.ignoresSafeArea())
-            .navigationTitle(store.t("设置", "Settings"))
+            .navigationTitle(store.t(key: L10n.settings))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(store.t("完成", "Done")) { dismiss() }
+                    Button(store.t(key: L10n.done)) { dismiss() }
                         .foregroundColor(AppTheme.accent)
                         .font(.system(size: 15, weight: .medium))
                 }
@@ -448,12 +449,8 @@ struct LanguageRow: View {
     let isSelected: Bool
     let onTap: () -> Void
     
-    var langDisplayFull: String {
-        switch lang {
-        case .chinese: return "中文"
-        case .english: return "English"
-        }
-    }
+    // Uses AppLanguage.displayName (defined in L10n.swift, covers all 5 languages)
+    var langDisplayFull: String { lang.displayName }
     
     var body: some View {
         Button(action: onTap) {
