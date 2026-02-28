@@ -271,89 +271,273 @@ struct SettingsSheet: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var pro: ProStore
-    @State private var showLogin=false
-    @State private var isLoggedIn=false
-    @State private var userEmail=""
 
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing:0) {
-                    // Pro 状态
+                VStack(spacing: 20) {
+
+                    // ── Pro 横幅 ─────────────────────────────────
                     if pro.isPro {
-                        HStack(spacing:14) {
+                        // 已订阅：简洁徽章
+                        HStack(spacing: 12) {
                             ZStack {
-                                Circle().fill(Color(red:1,green:0.85,blue:0.3).opacity(0.15)).frame(width:50,height:50)
-                                Image(systemName:"crown.fill").foregroundColor(Color(red:1,green:0.85,blue:0.3))
+                                Circle()
+                                    .fill(AppTheme.gold.opacity(0.12))
+                                    .frame(width: 44, height: 44)
+                                Image(systemName: "crown.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(AppTheme.gold)
                             }
-                            VStack(alignment:.leading,spacing:3) {
-                                Text("DailyNav Pro").font(.headline).foregroundColor(AppTheme.textPrimary)
-                                Text(store.t("已订阅","Active subscription")).font(.caption).foregroundColor(AppTheme.textSecondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("DailyNav Pro")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(AppTheme.textPrimary)
+                                Text(store.t("已激活订阅", "Active subscription"))
+                                    .font(.system(size: 12))
+                                    .foregroundColor(AppTheme.textSecondary)
                             }
                             Spacer()
-                            Button(action:{ pro.isPro=false }) {
-                                Text(store.t("取消订阅","Cancel")).font(.caption).padding(.horizontal,10).padding(.vertical,5)
-                                    .background(AppTheme.bg3).cornerRadius(8).foregroundColor(AppTheme.textTertiary)
+                            Button(action: { pro.isPro = false }) {
+                                Text(store.t("取消", "Cancel"))
+                                    .font(.system(size: 12))
+                                    .foregroundColor(AppTheme.textTertiary)
+                                    .padding(.horizontal, 12).padding(.vertical, 6)
+                                    .background(AppTheme.bg2)
+                                    .cornerRadius(8)
+                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppTheme.border0, lineWidth: 0.8))
                             }
-                        }.padding(16).background(Color(red:1,green:0.85,blue:0.3).opacity(0.06)).cornerRadius(14)
-                        .overlay(RoundedRectangle(cornerRadius:14).stroke(Color(red:1,green:0.85,blue:0.3).opacity(0.2),lineWidth:1))
-                        .padding(.horizontal).padding(.top,20)
+                        }
+                        .padding(16)
+                        .background(AppTheme.bg1)
+                        .cornerRadius(18)
+                        .overlay(RoundedRectangle(cornerRadius: 18).stroke(AppTheme.gold.opacity(0.18), lineWidth: 0.8))
+
                     } else {
-                        Button(action:{ pro.showPaywall=true }) {
-                            HStack {
-                                Image(systemName:"crown.fill").foregroundColor(Color(red:0.1,green:0.05,blue:0.0))
-                                Text(store.t("升级到 Pro","Upgrade to Pro")).fontWeight(.semibold)
+                        // 升级入口：克制但吸引
+                        Button(action: { pro.showPaywall = true }) {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    Circle()
+                                        .fill(AppTheme.gold.opacity(0.12))
+                                        .frame(width: 40, height: 40)
+                                    Image(systemName: "crown.fill")
+                                        .font(.system(size: 16))
+                                        .foregroundColor(AppTheme.gold)
+                                }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(store.t("升级到 Pro", "Upgrade to Pro"))
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(AppTheme.textPrimary)
+                                    Text(store.t("7 天免费体验", "7-day free trial"))
+                                        .font(.system(size: 11))
+                                        .foregroundColor(AppTheme.textTertiary)
+                                }
                                 Spacer()
-                                Text(store.t("7天免费试用","7-day free trial")).font(.caption)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(AppTheme.textTertiary)
                             }
                             .padding(16)
-                            .background(LinearGradient(colors:[Color(red:1,green:0.85,blue:0.3),Color(red:1,green:0.65,blue:0.2)],startPoint:.leading,endPoint:.trailing))
-                            .cornerRadius(14).foregroundColor(Color(red:0.1,green:0.05,blue:0.0))
-                        }.padding(.horizontal).padding(.top,20)
+                            .background(AppTheme.bg1)
+                            .cornerRadius(18)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18)
+                                    .stroke(AppTheme.gold.opacity(0.22), lineWidth: 0.8)
+                            )
+                        }
                     }
 
-                    Divider().background(AppTheme.border0).padding(.vertical,20)
-
-                    // 语言
-                    VStack(alignment:.leading,spacing:8) {
-                        Text(store.t("语言","Language")).font(.caption).foregroundColor(AppTheme.textTertiary).kerning(2).padding(.horizontal)
-                        HStack(spacing:10) {
-                            ForEach(AppLanguage.allCases,id:\.self) { lang in
-                                Button(action:{ withAnimation(.spring(response:0.3)){ store.language=lang } }) {
-                                    HStack(spacing:7) {
-                                        Text(lang == .chinese ? "🇨🇳":"🇺🇸").font(.title3)
-                                        Text(lang.displayName).font(.subheadline)
-                                            .foregroundColor(store.language==lang ? AppTheme.accent:AppTheme.textSecondary)
+                    // ── 语言选择 ─────────────────────────────────
+                    SettingsSection(title: store.t("语言", "Language")) {
+                        VStack(spacing: 0) {
+                            ForEach(AppLanguage.allCases, id: \.self) { lang in
+                                LanguageRow(
+                                    lang: lang,
+                                    isSelected: store.language == lang,
+                                    onTap: {
+                                        withAnimation(.easeInOut(duration: 0.22)) {
+                                            store.language = lang
+                                        }
                                     }
-                                    .frame(maxWidth:.infinity).padding(.vertical,13)
-                                    .background(store.language==lang ? AppTheme.accentSoft:AppTheme.bg2).cornerRadius(12)
-                                    .overlay(RoundedRectangle(cornerRadius:12).stroke(store.language==lang ? AppTheme.accent.opacity(0.4):AppTheme.border0,lineWidth:1))
+                                )
+                                if lang != AppLanguage.allCases.last {
+                                    Divider()
+                                        .background(AppTheme.border0)
+                                        .padding(.leading, 16)
                                 }
                             }
-                        }.padding(.horizontal)
+                        }
+                        .background(AppTheme.bg1)
+                        .cornerRadius(14)
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(AppTheme.border0, lineWidth: 0.8))
                     }
 
-                    Divider().background(AppTheme.border0).padding(.vertical,20)
-
-                    VStack(spacing:0) {
-                        SRow(icon:"star.fill",color:Color(red:1,green:0.85,blue:0.2),label:store.t("给我们评分","Rate Us"),action:{})
-                        SRow(icon:"envelope.fill",color:AppTheme.accent,label:store.t("联系我们","Contact"),action:{})
-                        SRow(icon:"doc.text.fill",color:AppTheme.textTertiary,label:store.t("隐私政策","Privacy Policy"),action:{})
-                        SRow(icon:"info.circle.fill",color:AppTheme.textTertiary,label:"Version 1.0.0",action:nil)
+                    // ── 操作列表 ─────────────────────────────────
+                    SettingsSection(title: store.t("支持", "Support")) {
+                        VStack(spacing: 0) {
+                            SRow2(icon: "star", label: store.t("给我们评分", "Rate This App"), action: {})
+                            SRowDivider()
+                            SRow2(icon: "envelope", label: store.t("联系我们", "Contact Us"), action: {})
+                            SRowDivider()
+                            SRow2(icon: "doc.text", label: store.t("隐私政策", "Privacy Policy"), action: {})
+                            SRowDivider()
+                            SRow2(icon: "info.circle", label: "Version 1.0.0", action: nil)
+                        }
+                        .background(AppTheme.bg1)
+                        .cornerRadius(14)
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(AppTheme.border0, lineWidth: 0.8))
                     }
-                    .background(AppTheme.bg1).cornerRadius(14)
-                    .overlay(RoundedRectangle(cornerRadius:14).stroke(AppTheme.border0,lineWidth:1))
-                    .padding(.horizontal)
 
-                    Spacer(minLength:40)
+                    // ── Coming Soon ──────────────────────────────
+                    SettingsSection(title: store.t("即将推出", "Coming Soon")) {
+                        VStack(spacing: 0) {
+                            ComingSoonRow(icon: "icloud", label: store.t("云端同步", "Cloud Sync"))
+                            SRowDivider()
+                            ComingSoonRow(icon: "sparkles", label: store.t("AI 智能规划", "AI Task Planning"))
+                            SRowDivider()
+                            ComingSoonRow(icon: "timer", label: store.t("专注模式", "Focus Mode"))
+                            SRowDivider()
+                            ComingSoonRow(icon: "rectangle.on.rectangle", label: store.t("桌面小组件", "Home Widget"))
+                            SRowDivider()
+                            ComingSoonRow(icon: "square.and.arrow.up", label: store.t("数据导出", "Export Data"))
+                        }
+                        .background(AppTheme.bg1)
+                        .cornerRadius(14)
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(AppTheme.border0, lineWidth: 0.8))
+                    }
+
+                    Spacer(minLength: 40)
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
             }
             .background(AppTheme.bg0.ignoresSafeArea())
-            .navigationTitle(store.t("设置","Settings")).navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(store.t("设置", "Settings"))
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement:.navigationBarTrailing){ Button(store.t("完成","Done")){dismiss()}.foregroundColor(AppTheme.accent) }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(store.t("完成", "Done")) { dismiss() }
+                        .foregroundColor(AppTheme.accent)
+                        .font(.system(size: 15, weight: .medium))
+                }
             }
         }
+    }
+}
+
+// ── Settings sub-components ──────────────────────────────
+
+struct SettingsSection<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(AppTheme.textTertiary)
+                .kerning(1.2)
+                .padding(.leading, 4)
+            content
+        }
+    }
+}
+
+struct LanguageRow: View {
+    let lang: AppLanguage
+    let isSelected: Bool
+    let onTap: () -> Void
+    
+    var langDisplayFull: String {
+        switch lang {
+        case .chinese: return "中文"
+        case .english: return "English"
+        }
+    }
+    
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                Image(systemName: "globe")
+                    .font(.system(size: 14, weight: .light))
+                    .foregroundColor(isSelected ? AppTheme.accent : AppTheme.textTertiary)
+                    .frame(width: 20)
+                Text(langDisplayFull)
+                    .font(.system(size: 15))
+                    .foregroundColor(isSelected ? AppTheme.textPrimary : AppTheme.textSecondary)
+                Spacer()
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(AppTheme.accent)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+        }
+    }
+}
+
+struct SRow2: View {
+    let icon: String
+    let label: String
+    let action: (() -> Void)?
+    
+    var body: some View {
+        Button(action: action ?? {}) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .light))
+                    .foregroundColor(AppTheme.textSecondary)
+                    .frame(width: 20)
+                Text(label)
+                    .font(.system(size: 15))
+                    .foregroundColor(AppTheme.textPrimary)
+                Spacer()
+                if action != nil {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .light))
+                        .foregroundColor(AppTheme.textTertiary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+        }
+        .disabled(action == nil)
+    }
+}
+
+struct SRowDivider: View {
+    var body: some View {
+        Divider()
+            .background(AppTheme.border0)
+            .padding(.leading, 16)
+    }
+}
+
+struct ComingSoonRow: View {
+    let icon: String
+    let label: String
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .light))
+                .foregroundColor(AppTheme.textTertiary.opacity(0.6))
+                .frame(width: 20)
+            Text(label)
+                .font(.system(size: 15))
+                .foregroundColor(AppTheme.textTertiary)
+            Spacer()
+            Text("Soon")
+                .font(.system(size: 10))
+                .foregroundColor(AppTheme.textTertiary.opacity(0.5))
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background(AppTheme.bg2)
+                .cornerRadius(6)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
     }
 }
 

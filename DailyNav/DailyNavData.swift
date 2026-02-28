@@ -191,52 +191,56 @@ struct Achievement: Identifiable {
 
 struct AppTheme {
     // ═══════════════════════════════════════════════════════════
-    // DESIGN SYSTEM v2  —  Deep Space Premium Dark
-    // Philosophy: Midnight depth + mineral accent + glass layers
+    // DESIGN SYSTEM v3  —  Monet Luminist Palette
+    // Philosophy: Giverny dawn light — misted ivory, pond green,
+    //   willow shadow, lotus blush. Quiet depth, never harsh.
+    //   Reference: Water Lilies 1906-1926, Impression Sunrise.
     // ═══════════════════════════════════════════════════════════
 
-    // ── 背景：深空哑黑，去蓝感，更高级 ──
-    // bg0: 最深底 #0D0F14  几乎纯黑带极微暖调
-    static let bg0 = Color(red:0.051,green:0.059,blue:0.078)
-    // bg1: 卡片层 #141820  深炭蓝
-    static let bg1 = Color(red:0.078,green:0.094,blue:0.125)
-    // bg2: 次层  #1C2130  深海军
-    static let bg2 = Color(red:0.110,green:0.129,blue:0.188)
-    // bg3: 高亮  #232A3C  微蓝炭灰
-    static let bg3 = Color(red:0.137,green:0.165,blue:0.235)
+    // ── 背景：晨雾烟灰，莫奈水面底调 ──
+    // bg0: #1A1C1E  深烟炭，接近水面阴影
+    static let bg0 = Color(red:0.102, green:0.110, blue:0.118)
+    // bg1: #242729  卡片底，芦苇茎灰
+    static let bg1 = Color(red:0.141, green:0.153, blue:0.161)
+    // bg2: #2E3235  次层，雾中柳影
+    static let bg2 = Color(red:0.180, green:0.196, blue:0.208)
+    // bg3: #383D41  高亮/hover，池水微涟
+    static let bg3 = Color(red:0.220, green:0.239, blue:0.255)
 
-    // ── 玻璃态边框：更精致的层次感 ──
-    static let border0 = Color.white.opacity(0.055)   // 极淡，卡片间隔
-    static let border1 = Color.white.opacity(0.10)    // 中淡，强调边框
-    static let borderGlow = Color(red:0.388,green:0.820,blue:0.820).opacity(0.18)  // accent glow border
+    // ── 边框：烟光极淡 ──
+    static let border0 = Color.white.opacity(0.060)
+    static let border1 = Color.white.opacity(0.110)
+    static let borderGlow = Color(red:0.600, green:0.820, blue:0.740).opacity(0.20)
 
-    // ── 文字：暖白系，有温度感 ──
-    static let textPrimary   = Color(red:0.95,green:0.96,blue:0.98)   // 几乎纯白，微冷
-    static let textSecondary = Color(red:0.60,green:0.65,blue:0.74)   // 中灰蓝
-    static let textTertiary  = Color(red:0.32,green:0.38,blue:0.50)   // 深灰蓝（hint级别）
+    // ── 文字：暖象牙系，莫奈油彩感 ──
+    static let textPrimary   = Color(red:0.930, green:0.920, blue:0.900)  // 暖象牙白
+    static let textSecondary = Color(red:0.640, green:0.640, blue:0.620)  // 雾中灰绿
+    static let textTertiary  = Color(red:0.380, green:0.390, blue:0.380)  // 苔藓深灰
 
-    // ── 主强调色：矿石青绿，更饱和更亮 ──
-    static let accent      = Color(red:0.278,green:0.824,blue:0.796)  // #47D2CB 矿物青
-    static let accentSoft  = Color(red:0.278,green:0.824,blue:0.796).opacity(0.10)
-    static let accentGlow  = Color(red:0.278,green:0.824,blue:0.796).opacity(0.06)  // 背景晕光
+    // ── 主调：莫奈荷叶绿 — 饱和但雅，非荧光 ──
+    // Inspired by "Water Lilies" reed-green reflections
+    static let accent      = Color(red:0.420, green:0.740, blue:0.650)   // #6BBDA5 荷影绿
+    static let accentSoft  = Color(red:0.420, green:0.740, blue:0.650).opacity(0.12)
+    static let accentGlow  = Color(red:0.420, green:0.740, blue:0.650).opacity(0.06)
 
-    // ── 目标调色板：提升饱和度，更鲜明 ──
+    // ── 目标调色板：莫奈色系六色 ──
+    // Water Lilies · Impression Sunrise · Rouen Cathedral · Haystacks
     static let palette: [Color] = [
-        Color(red:0.278,green:0.824,blue:0.796),  // #47D2CB 矿物青
-        Color(red:0.353,green:0.667,blue:0.953),  // #5AAACC 深海蓝
-        Color(red:0.647,green:0.510,blue:0.953),  // #A582F3 紫水晶
-        Color(red:0.953,green:0.647,blue:0.302),  // #F3A54D 琥珀橙
-        Color(red:0.918,green:0.416,blue:0.518),  // #EA6A84 玫瑰粉
-        Color(red:0.376,green:0.847,blue:0.573),  // #60D892 翡翠绿
+        Color(red:0.420, green:0.740, blue:0.650),   // 荷影绿    Waterlily Green
+        Color(red:0.500, green:0.650, blue:0.820),   // 晨雾蓝    Morning Mist Blue
+        Color(red:0.750, green:0.580, blue:0.780),   // 紫藤紫    Wisteria Mauve
+        Color(red:0.870, green:0.640, blue:0.420),   // 晚霞橙    Sunset Amber
+        Color(red:0.840, green:0.520, blue:0.560),   // 莲花粉    Lotus Blush
+        Color(red:0.560, green:0.720, blue:0.590),   // 苔草绿    Reed Meadow
     ]
 
-    // ── 语义色 ──
-    static let gold   = Color(red:0.988,green:0.804,blue:0.369)  // #FCCD5E 更亮的金
-    static let danger = Color(red:0.953,green:0.388,blue:0.447)  // #F36372 鲜红
-    static let success = Color(red:0.376,green:0.847,blue:0.573) // 翡翠绿
+    // ── 语义色：莫奈自然调 ──
+    static let gold    = Color(red:0.890, green:0.750, blue:0.440)  // 麦秆金
+    static let danger  = Color(red:0.820, green:0.380, blue:0.380)  // 暗玫瑰红
+    static let success = Color(red:0.440, green:0.730, blue:0.540)  // 嫩芽绿
 
     // ── 渐变辅助 ──
-    static let gradientTop = Color(red:0.278,green:0.824,blue:0.796).opacity(0.08)
+    static let gradientTop    = Color(red:0.420, green:0.740, blue:0.650).opacity(0.07)
     static let gradientBottom = Color.clear
 }
 
@@ -923,7 +927,7 @@ class AppStore: ObservableObject {
         let avg = avgCompletion(for:dates)
         let mood = avgMood(for:dates)
         let activeDays = dates.filter { completionRate(for:$0) > 0 }.count
-        let moodEmoji = mood >= 4.5 ? "🔥" : mood >= 3.5 ? "😊" : mood >= 2.5 ? "🙂" : mood >= 1.5 ? "😐" : mood > 0 ? "😔" : ""
+        let moodEmoji = mood >= 4.5 ? "✨" : mood >= 3.5 ? "🤍" : mood >= 2.5 ? "🙂" : mood >= 1.5 ? "😶" : mood > 0 ? "😞" : ""
 
         // 优先取关键词（已有总结则从总结取，否则从日记聚合）
         let kw: (gains:[String], challenges:[String], nexts:[String])
