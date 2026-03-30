@@ -7,17 +7,26 @@ import SwiftUI
 @main
 struct DailyNavApp: App {
     @State private var showSplash = true
+    @State private var showOnboarding = !UserDefaults.standard.bool(forKey: "dn_onboardingDone")
+    @ObservedObject private var notificationManager = NotificationManager.shared
 
     var body: some Scene {
         WindowGroup {
             ZStack {
-                ContentView().opacity(showSplash ? 0 : 1)
+                ContentView()
+                    .opacity(showSplash ? 0 : 1)
+                    .environmentObject(notificationManager)
+
                 if showSplash {
                     SplashView { withAnimation(.easeIn(duration: 0.55)) { showSplash = false } }
                         .zIndex(1)
                 }
             }
             .animation(.easeOut(duration: 0.55), value: showSplash)
+            .fullScreenCover(isPresented: $showOnboarding) {
+                OnboardingView(isPresented: $showOnboarding)
+                    .environmentObject(AppStore())
+            }
         }
     }
 }
@@ -38,6 +47,9 @@ struct SplashView: View {
 
     // 每次启动随机语录
     private var todayQuote: Quote {
+        guard !quoteLibrary.isEmpty else {
+            return Quote(zh: "", en: "", author: "", authorEn: "")
+        }
         let seed = Int(Date().timeIntervalSince1970 * 100) % quoteLibrary.count
         return quoteLibrary[abs(seed) % quoteLibrary.count]
     }

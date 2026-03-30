@@ -233,6 +233,24 @@ enum L10n {
         case .spanish:  return "Fecha límite"
         }
     }
+    nonisolated static func goalTypeDeadline(_ l: AppLanguage) -> String {
+        switch l {
+        case .chinese:  return "时间段"
+        case .english:  return "Deadline"
+        case .japanese: return "期限あり"
+        case .korean:   return "기한 있음"
+        case .spanish:  return "Con fecha"
+        }
+    }
+    nonisolated static func goalTypeOngoing(_ l: AppLanguage) -> String {
+        switch l {
+        case .chinese:  return "长期"
+        case .english:  return "Ongoing"
+        case .japanese: return "継続"
+        case .korean:   return "지속형"
+        case .spanish:  return "Continuo"
+        }
+    }
     nonisolated static func addTask(_ l: AppLanguage) -> String {
         switch l {
         case .chinese:  return "添加任务"
@@ -287,6 +305,15 @@ enum L10n {
         case .japanese: return "AI のヒント"
         case .korean:   return "AI 제안"
         case .spanish:  return "Sugerencias AI"
+        }
+    }
+    nonisolated static func refreshTips(_ l: AppLanguage) -> String {
+        switch l {
+        case .chinese:  return "刷新建议"
+        case .english:  return "Refresh"
+        case .japanese: return "更新する"
+        case .korean:   return "새로고침"
+        case .spanish:  return "Actualizar"
         }
     }
     nonisolated static func doubleTapEdit(_ l: AppLanguage) -> String {
@@ -713,6 +740,15 @@ enum L10n {
         case .spanish: return "Añadir meta"
         }
     }
+    nonisolated static func editGoalLabel(_ l: AppLanguage) -> String {
+        switch l {
+        case .chinese: return "编辑目标"
+        case .english: return "Edit Goal"
+        case .japanese: return "目標を編集"
+        case .korean: return "목표 편집"
+        case .spanish: return "Editar meta"
+        }
+    }
     nonisolated static func upgradeLimit(_ l: AppLanguage) -> String {
         switch l {
         case .chinese: return "已达上限  ·  升级 Pro"
@@ -751,11 +787,11 @@ enum L10n {
     }
     nonisolated static func editHint(_ l: AppLanguage) -> String {
         switch l {
-        case .chinese: return "双击编辑  ·  左条拖改截止日"
-        case .english: return "Double-tap edit · drag strip = deadline"
-        case .japanese: return "ダブルタップで編集 · 左ストリップでDeadline"
-        case .korean: return "더블탭 편집 · 왼쪽 드래그 = 마감일"
-        case .spanish: return "Doble toque = editar · arrastrar banda = plazo"
+        case .chinese: return "双击编辑  拖拽改日期"
+        case .english: return "Double-tap to edit, drag to change date"
+        case .japanese: return "ダブルタップで編集、ドラッグで日付変更"
+        case .korean: return "더블탭 편집, 드래그로 날짜 변경"
+        case .spanish: return "Doble toque para editar, arrastrar para cambiar fecha"
         }
     }
     nonisolated static func share(_ l: AppLanguage) -> String {
@@ -1869,7 +1905,7 @@ enum L10n {
     }
     nonisolated static func todayPendingLabel(_ l: AppLanguage) -> String {
         switch l {
-        case .chinese:  return "今日待决"
+        case .chinese:  return "今日待办"
         case .english:  return "Today's Pending"
         case .japanese: return "今日の保留"
         case .korean:   return "오늘의 보류"

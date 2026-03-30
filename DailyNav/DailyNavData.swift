@@ -1,5 +1,7 @@
 import SwiftUI
 import Combine
+import StoreKit
+import Security
 
 // ============================================================
 // MARK: - 语言  (AppLanguage is defined in L10n.swift)
@@ -7,7 +9,7 @@ import Combine
 // AppLanguage: zh / en / ja / ko / es — all localization in L10n.swift
 
 // ============================================================
-// MARK: - Pro 订阅系统
+// MARK: - 付费系统（三层：Free / Plus 买断 / Pro 订阅）
 // ============================================================
 
 // ── 我的成长层级数据结构 ────────────────────────────────────
@@ -16,23 +18,268 @@ struct GrowthWeekEntry  { let label: String; let key: String; let dates: [Date] 
 struct GrowthMonthEntry { let label: String; let key: String; let dates: [Date] }
 struct GrowthYearEntry  { let year: Int; let label: String; let dates: [Date] }
 
+// ── 用户等级 ─────────────────────────────────────────────────
+enum UserTier: String, Codable, Comparable {
+    case free = "free"
+    case plus = "plus"     // 买断：解锁完整功能
+    case pro  = "pro"      // 订阅：Plus 全部 + AI 智能分析
+
+    static func < (lhs: UserTier, rhs: UserTier) -> Bool {
+        let order: [UserTier] = [.free, .plus, .pro]
+        return (order.firstIndex(of: lhs) ?? 0) < (order.firstIndex(of: rhs) ?? 0)
+    }
+}
+
+// ── Keychain 工具（无需第三方库）────────────────────────────
+private enum Keychain {
+    static let service = "com.dailynav.prostore"
+
+    static func write(_ key: String, value: String) {
+        let data = Data(value.utf8)
+        let query: [String: Any] = [
+            kSecClass as String:            kSecClassGenericPassword,
+            kSecAttrService as String:      service,
+            kSecAttrAccount as String:      key,
+            kSecValueData as String:        data
+        ]
+        SecItemDelete(query as CFDictionary)
+        SecItemAdd(query as CFDictionary, nil)
+    }
+
+    static func read(_ key: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String:            kSecClassGenericPassword,
+            kSecAttrService as String:      service,
+            kSecAttrAccount as String:      key,
+            kSecReturnData as String:       true,
+            kSecMatchLimit as String:       kSecMatchLimitOne
+        ]
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+              let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+}
+
+// ── ProStore（管理三层付费状态）─────────────────────────────
+@MainActor
 class ProStore: ObservableObject {
-    @Published var isPro: Bool = true           // 设为 false 可预览免费版
+
+    // ── 对外状态 ──────────────────────────────────────────────
+    @Published var tier: UserTier = .free
     @Published var showPaywall: Bool = false
+    @Published var isLoading: Bool = false
 
-    static let monthlyUSD  = "$1.99"
-    static let yearlyUSD   = "$14.99"
-    static let monthlyGBP  = "£1.99"
-    static let yearlyGBP   = "£14.99"
-    static let monthlyCNY  = "¥14"
-    static let yearlyCNY   = "¥98"
+    // ── 向后兼容：isPro = Plus 或 Pro 均为 true ──────────────
+    var isPro: Bool {
+        get { tier >= .plus }
+        set { tier = newValue ? .plus : .free }
+    }
+    var isProSubscriber: Bool { tier == .pro }
 
-    // 免费版限制
-    static let freeGoalLimit = 3
-    static let freeQuoteLimit = 3   // 灵感页每天限看条数
+    // ── 产品 ID（必须与 App Store Connect 中创建的完全一致）──
+    // 前缀 = Bundle ID (com.vince.dailynav)
+    // 买断（非消耗型）
+    static let plusProductID      = "com.vince.dailynav.plus.lifetime"
+    // 订阅（自动续期）
+    static let proMonthlyID      = "com.vince.dailynav.pro.monthly"
+    static let proYearlyID       = "com.vince.dailynav.pro.yearly"
 
+    static let allProductIDs: Set<String> = [
+        plusProductID, proMonthlyID, proYearlyID
+    ]
+
+    // ── 免费版限制 ────────────────────────────────────────────
+    static let freeGoalLimit  = 1    // 免费版最多 1 个目标
+    static let freeTaskLimit  = 2    // 免费版每个目标最多 2 个任务
+    static let freeQuoteLimit = 1    // 免费版每天 1 条语录
+
+    // ── StoreKit 产品对象（用于展示本地化价格）────────────────
+    @Published var plusProduct: Product? = nil
+    @Published var proMonthly: Product? = nil
+    @Published var proYearly: Product? = nil
+
+    // ── Transaction 监听任务 ──────────────────────────────────
+    private var transactionListener: Task<Void, Never>? = nil
+
+    // ── 初始化 ────────────────────────────────────────────────
+    init() {
+        // 先从 Keychain 快速恢复（避免启动白屏）
+        if let saved = Keychain.read("userTier"),
+           let t = UserTier(rawValue: saved) {
+            tier = t
+        }
+        // 启动后台校验 + 监听
+        transactionListener = listenForTransactions()
+        Task { await initialize() }
+    }
+
+    deinit { transactionListener?.cancel() }
+
+    // ── 后台监听 Transaction 更新（续费/退款/家庭共享）────────
+    private func listenForTransactions() -> Task<Void, Never> {
+        Task.detached { [weak self] in
+            for await result in Transaction.updates {
+                if case .verified(let tx) = result {
+                    await tx.finish()
+                    await self?.refreshEntitlements()
+                }
+            }
+        }
+    }
+
+    // ── 启动校验 ──────────────────────────────────────────────
+    func initialize() async {
+        // 1. 加载全部产品信息
+        do {
+            let products = try await Product.products(for: Self.allProductIDs)
+            for p in products {
+                switch p.id {
+                case Self.plusProductID: plusProduct = p
+                case Self.proMonthlyID: proMonthly = p
+                case Self.proYearlyID:  proYearly  = p
+                default: break
+                }
+            }
+        } catch {
+            #if DEBUG
+            print("[ProStore] Failed to fetch products: \(error)")
+            #endif
+        }
+        // 2. 校验当前 entitlements
+        await refreshEntitlements()
+    }
+
+    // ── 刷新权益状态 ──────────────────────────────────────────
+    func refreshEntitlements() async {
+        var hasPlus = false
+        var hasPro  = false
+
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let tx) = result,
+                  tx.revocationDate == nil else { continue }
+            switch tx.productID {
+            case Self.plusProductID:
+                hasPlus = true
+            case Self.proMonthlyID, Self.proYearlyID:
+                // 订阅需要检查是否过期
+                if let expiry = tx.expirationDate, expiry > Date() {
+                    hasPro = true
+                } else if tx.expirationDate == nil {
+                    hasPro = true  // 非过期类型
+                }
+            default: break
+            }
+        }
+
+        // Pro 包含 Plus 全部权益
+        let newTier: UserTier = hasPro ? .pro : (hasPlus ? .plus : .free)
+        tier = newTier
+        Keychain.write("userTier", value: newTier.rawValue)
+    }
+
+    // ── 购买 Plus（买断）────────────────────────────────────
+    func purchasePlus() async {
+        guard let product = plusProduct else { return }
+        await doPurchase(product)
+    }
+
+    // ── 购买 Pro 订阅 ─────────────────────────────────────────
+    func purchasePro(yearly: Bool) async {
+        let product = yearly ? proYearly : proMonthly
+        guard let product else { return }
+        await doPurchase(product)
+    }
+
+    // ── 通用购买流程 ──────────────────────────────────────────
+    private func doPurchase(_ product: Product) async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let result = try await product.purchase()
+            switch result {
+            case .success(let verification):
+                if case .verified(let tx) = verification {
+                    await tx.finish()
+                    await refreshEntitlements()
+                    showPaywall = false
+                }
+            case .userCancelled: break
+            case .pending: break
+            @unknown default: break
+            }
+        } catch {
+            #if DEBUG
+            print("[ProStore] purchase error: \(error)")
+            #endif
+        }
+    }
+
+    // ── 恢复购买（Apple 审核必须有）──────────────────────────
+    func restore() async {
+        isLoading = true
+        defer { isLoading = false }
+        try? await StoreKit.AppStore.sync()
+        await refreshEntitlements()
+        if tier >= .plus { showPaywall = false }
+    }
+
+    // ── 权限检查方法 ──────────────────────────────────────────
+
+    /// 要求 Plus 或以上才能使用
+    func requirePlus(action: @escaping () -> Void) {
+        if tier >= .plus { action() } else { showPaywall = true }
+    }
+
+    /// 要求 Pro 订阅才能使用（AI 功能）
     func requirePro(action: @escaping () -> Void) {
-        if isPro { action() } else { showPaywall = true }
+        if tier >= .pro { action() } else { showPaywall = true }
+    }
+
+    /// 检查是否有某功能的权限
+    func hasAccess(to feature: Feature) -> Bool {
+        feature.minimumTier <= tier
+    }
+
+    // ── 功能权限定义 ──────────────────────────────────────────
+    enum Feature {
+        // Plus（买断）— 解锁完整功能
+        case unlimitedGoals        // 无限目标（免费版最多 2 个）
+        case unlimitedTasks        // 无限任务（免费版每目标最多 2 个）
+        case unlimitedQuotes       // 无限语录
+        case journalHistory        // 心得历史回顾
+        case shareCards            // 分享成就卡片
+        case monthlyYearlyStats    // 月度/年度数据分析
+
+        // Pro（订阅）— Plus 全部 + AI 智能功能
+        case aiWeeklySummary       // AI 智能周报
+        case aiMonthlySummary      // AI 智能月报
+        case aiYearlySummary       // AI 智能年报
+        case aiInsights            // AI 个性化成长洞察
+        case aiSuggestions         // AI 目标/习惯建议
+        case cloudSync             // iCloud 同步 (Coming Soon)
+
+        var minimumTier: UserTier {
+            switch self {
+            case .unlimitedGoals, .unlimitedTasks, .unlimitedQuotes,
+                 .journalHistory, .shareCards,
+                 .monthlyYearlyStats:
+                return .plus
+            case .aiWeeklySummary, .aiMonthlySummary, .aiYearlySummary,
+                 .aiInsights, .aiSuggestions, .cloudSync:
+                return .pro
+            }
+        }
+    }
+
+    /// 检查目标数量是否超限
+    func canAddGoal(currentCount: Int) -> Bool {
+        tier >= .plus || currentCount < Self.freeGoalLimit
+    }
+
+    /// 检查任务数量是否超限
+    func canAddTask(currentTaskCount: Int) -> Bool {
+        tier >= .plus || currentTaskCount < Self.freeTaskLimit
     }
 }
 
@@ -40,29 +287,60 @@ class ProStore: ObservableObject {
 // MARK: - 模型
 // ============================================================
 
-struct GoalTask: Identifiable, Equatable {
+// ── Color Codable 桥接 ─────────────────────────────────────
+struct CodableColor: Codable, Equatable {
+    var r: Double; var g: Double; var b: Double; var a: Double
+    init(_ color: Color) {
+        let ui = UIColor(color)
+        var rv: CGFloat = 0, gv: CGFloat = 0, bv: CGFloat = 0, av: CGFloat = 0
+        ui.getRed(&rv, green: &gv, blue: &bv, alpha: &av)
+        r = Double(rv); g = Double(gv); b = Double(bv); a = Double(av)
+    }
+    var color: Color { Color(red: r, green: g, blue: b, opacity: a) }
+}
+
+struct GoalTask: Identifiable, Equatable, Codable {
     var id = UUID()
     var title: String
     var estimatedMinutes: Int?
     var progress: Double = 0.0
     var pinnedDate: Date? = nil       // 非nil时只在该天显示（单日任务）
+    var timeSlot: Int? = nil          // 0=上午 1=下午 2=晚上 nil=未分配
     var isCompleted: Bool { progress >= 1.0 }
 }
 
-enum GoalType: String, CaseIterable, Equatable {
+enum GoalType: String, CaseIterable, Equatable, Codable {
     case deadline = "deadline"; case longterm = "longterm"
 }
 
-struct Goal: Identifiable, Equatable {
+struct Goal: Identifiable, Equatable, Codable {
     var id = UUID()
     var title: String
     var category: String
-    var color: Color
+    private var _color: CodableColor
+    var color: Color {
+        get { _color.color }
+        set { _color = CodableColor(newValue) }
+    }
     var goalType: GoalType
     var startDate: Date
     var endDate: Date?
     var tasks: [GoalTask]
     var showCalendarDot: Bool = true   // 是否在日历中显示光点
+
+    init(id: UUID = UUID(), title: String, category: String, color: Color,
+         goalType: GoalType, startDate: Date, endDate: Date? = nil,
+         tasks: [GoalTask] = [], showCalendarDot: Bool = true) {
+        self.id = id; self.title = title; self.category = category
+        self._color = CodableColor(color)
+        self.goalType = goalType; self.startDate = startDate
+        self.endDate = endDate; self.tasks = tasks
+        self.showCalendarDot = showCalendarDot
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, category, _color = "color", goalType, startDate, endDate, tasks, showCalendarDot
+    }
 
     func covers(_ date: Date) -> Bool {
         let cal = Calendar.current
@@ -92,19 +370,19 @@ struct Goal: Identifiable, Equatable {
     }
 }
 
-struct DailyRecord: Identifiable {
+struct DailyRecord: Identifiable, Codable {
     var id = UUID()
     var date: Date; var taskId: UUID; var goalId: UUID; var progress: Double
 }
 
 // 跨天移动的任务记录（目标本身不覆盖该天时使用）
-struct ExtraTaskEntry: Identifiable {
+struct ExtraTaskEntry: Identifiable, Codable {
     var id = UUID()
     var date: Date; var taskId: UUID; var goalId: UUID
 }
 
 // 周/月/年总结（结构化：情绪/收获/困难/展望 + 关键词 + 困难跟踪）
-struct PeriodSummary: Identifiable {
+struct PeriodSummary: Identifiable, Codable {
     var id = UUID()
     var periodType: Int          // 0=周 1=月 2=年
     var periodLabel: String      // "2026年第10周" / "2026年2月" / "2026年"
@@ -125,7 +403,7 @@ struct PeriodSummary: Identifiable {
     var avgCompletion: Double = 0
 }
 
-struct PlanTaskOverride: Identifiable {
+struct PlanTaskOverride: Identifiable, Codable {
     var id = UUID()
     var date: Date; var taskId: UUID; var goalId: UUID
     var overrideTitle: String?; var overrideMinutes: Int?
@@ -133,7 +411,7 @@ struct PlanTaskOverride: Identifiable {
 }
 
 // 每日困难追踪条目（独立于日记，可跨天继承）
-struct DailyChallengeEntry: Identifiable, Equatable {
+struct DailyChallengeEntry: Identifiable, Equatable, Codable {
     var id = UUID()
     var date: Date                          // 归属日期（首次出现）
     var keyword: String                     // 困难关键词
@@ -142,7 +420,7 @@ struct DailyChallengeEntry: Identifiable, Equatable {
 }
 
 // 每日回顾（提交后才保存）
-struct DayReview: Identifiable, Equatable {
+struct DayReview: Identifiable, Equatable, Codable {
     var id = UUID()
     var date: Date
     var rating: Int = 0
@@ -157,16 +435,34 @@ struct DayReview: Identifiable, Equatable {
     var isSubmitted: Bool = false
 }
 
-enum AchievementLevel: String, CaseIterable {
+enum AchievementLevel: String, CaseIterable, Codable {
     case good = "基本完成"; case great = "优秀完成"
     case perfect = "完美完成"; case milestone = "里程碑"
 }
 
-struct Achievement: Identifiable {
+struct Achievement: Identifiable, Codable {
     var id = UUID()
-    var goalId: UUID; var goalTitle: String; var goalColor: Color
+    var goalId: UUID; var goalTitle: String
+    private var _goalColor: CodableColor
+    var goalColor: Color {
+        get { _goalColor.color }
+        set { _goalColor = CodableColor(newValue) }
+    }
     var level: AchievementLevel; var completionRate: Double
     var date: Date; var streakDays: Int?; var description: String
+
+    init(id: UUID = UUID(), goalId: UUID, goalTitle: String, goalColor: Color,
+         level: AchievementLevel, completionRate: Double, date: Date,
+         streakDays: Int? = nil, description: String) {
+        self.id = id; self.goalId = goalId; self.goalTitle = goalTitle
+        self._goalColor = CodableColor(goalColor)
+        self.level = level; self.completionRate = completionRate
+        self.date = date; self.streakDays = streakDays; self.description = description
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, goalId, goalTitle, _goalColor = "goalColor", level, completionRate, date, streakDays, description
+    }
 
     var emoji: String {
         switch level { case .good:"🎯"; case .great:"⭐"; case .perfect:"🏆"; case .milestone:"🔥" }
@@ -179,6 +475,64 @@ struct Achievement: Identifiable {
         case .milestone: return AppTheme.danger
         }
     }
+}
+
+// ============================================================
+// MARK: - 奖励记录（日/周/月/年 — 递增强度）
+// ============================================================
+
+enum RewardLevel: String, CaseIterable, Codable {
+    case day   = "day"
+    case week  = "week"
+    case month = "month"
+    case year  = "year"
+
+    var symbol: String {
+        switch self {
+        case .day:   return "sparkle"
+        case .week:  return "crown.fill"
+        case .month: return "seal.fill"
+        case .year:  return "laurel.leading"
+        }
+    }
+    var emoji: String {
+        switch self { case .day: return "✦"; case .week: return "❋"; case .month: return "◈"; case .year: return "✺" }
+    }
+    var color: Color {
+        switch self {
+        case .day:   return AppTheme.accent.opacity(0.90)
+        case .week:  return AppTheme.gold.opacity(0.92)
+        case .month: return Color(red:0.780, green:0.490, blue:0.780)
+        case .year:  return Color(red:0.960, green:0.640, blue:0.320)
+        }
+    }
+    var hapticStrength: Int {
+        switch self { case .day: return 1; case .week: return 2; case .month: return 3; case .year: return 3 }
+    }
+}
+
+struct RewardRecord: Identifiable, Codable {
+    var id = UUID()
+    var level: RewardLevel
+    var date: Date
+    var periodLabel: String
+    var completionRate: Double
+}
+
+// ============================================================
+// MARK: - 计划心得（Plan Journal Entry）
+// ============================================================
+
+struct PlanJournalEntry: Identifiable, Codable {
+    var id = UUID()
+    var date: Date
+    var goalId: UUID
+    var goalTitle: String
+    var taskId: UUID?
+    var taskTitle: String?
+    var note: String
+    var createdAt: Date = Date()
+    var updatedAt: Date = Date()
 }
 
 // ============================================================
@@ -288,38 +642,118 @@ extension Color {
 // MARK: - AppStore
 // ============================================================
 
+@MainActor
 class AppStore: ObservableObject {
 
-    init() {
-        initDefaultGoals()
+    // ── 持久化 key 常量 ─────────────────────────────────────
+    private enum Key {
+        static let goals            = "dn_goals"
+        static let dailyRecords     = "dn_dailyRecords"
+        static let planOverrides    = "dn_planOverrides"
+        static let extraTasks       = "dn_extraTasks"
+        static let achievements     = "dn_achievements"
+        static let dayReviews       = "dn_dayReviews"
+        static let periodSummaries  = "dn_periodSummaries"
+        static let dailyChallenges  = "dn_dailyChallenges"
+        static let language         = "dn_language"
+        static let userBirthYear    = "dn_userBirthYear"
+        static let rewardRecords    = "dn_rewardRecords"
+        static let planJournals     = "dn_planJournals"
     }
 
-    @Published var goals: [Goal] = []  // populated by initDefaultGoals() on first launch
+    private let ud = UserDefaults.standard
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
+    // init期间跳过didSet持久化（避免写空数据）
+    private var isLoading = true
 
-    @Published var dailyRecords:  [DailyRecord]      = []
-    @Published var planOverrides: [PlanTaskOverride]  = []
-    @Published var extraTasks:    [ExtraTaskEntry]    = []
-    @Published var achievements:  [Achievement]       = []
-    @Published var dayReviews:    [DayReview]         = []
-    @Published var periodSummaries: [PeriodSummary]   = []
-    @Published var dailyChallenges: [DailyChallengeEntry] = []  // 跨天困难追踪
+    // ── 通用存储/读取 helper ────────────────────────────────
+    private func save<T: Encodable>(_ value: T, key: String) {
+        if let data = try? encoder.encode(value) { ud.set(data, forKey: key) }
+    }
+    private func load<T: Decodable>(_ type: T.Type, key: String) -> T? {
+        guard let data = ud.data(forKey: key) else { return nil }
+        return try? decoder.decode(type, from: data)
+    }
+
+    init() {
+        isLoading = true
+        defer { isLoading = false }
+
+        // 读取语言（无存档时按系统语言自动检测）
+        if let saved = load(AppLanguage.self, key: Key.language) {
+            language = saved
+        } else {
+            let sysLang = Locale.preferredLanguages.first ?? ""
+            if sysLang.hasPrefix("zh")      { language = .chinese  }
+            else if sysLang.hasPrefix("ja") { language = .japanese }
+            else if sysLang.hasPrefix("ko") { language = .korean   }
+            else if sysLang.hasPrefix("es") { language = .spanish  }
+            else                            { language = .english  }
+        }
+        // 读取用户数据
+        if let g  = load([Goal].self,                key: Key.goals)           { goals           = g  }
+        if let dr = load([DailyRecord].self,         key: Key.dailyRecords)    { dailyRecords    = dr }
+        if let po = load([PlanTaskOverride].self,    key: Key.planOverrides)   { planOverrides   = po }
+        if let et = load([ExtraTaskEntry].self,      key: Key.extraTasks)      { extraTasks      = et }
+        if let ac = load([Achievement].self,         key: Key.achievements)    { achievements    = ac }
+        if let rv = load([DayReview].self,           key: Key.dayReviews)      { dayReviews      = rv }
+        if let ps = load([PeriodSummary].self,       key: Key.periodSummaries) { periodSummaries = ps }
+        if let dc = load([DailyChallengeEntry].self, key: Key.dailyChallenges) { dailyChallenges = dc }
+        if let rr = load([RewardRecord].self,        key: Key.rewardRecords)   { rewardRecords   = rr }
+        if let pj = load([PlanJournalEntry].self,    key: Key.planJournals)    { planJournals    = pj }
+        if let by = ud.object(forKey: Key.userBirthYear) as? Int               { userBirthYear   = by }
+        // 仅全新安装时创建1个示例目标：双重判断 + 强制写盘
+        let isFirstInstall = ud.object(forKey: "dn_ever_initialized") == nil
+                          && ud.data(forKey: Key.goals) == nil
+        ud.set(true, forKey: "dn_ever_initialized")
+        if isFirstInstall && goals.isEmpty {
+            initDefaultGoals()
+        }
+        save(goals, key: Key.goals)
+        ud.synchronize()
+    }
+
+    @Published var goals: [Goal] = [] {
+        didSet { if !isLoading { save(goals, key: Key.goals) } }
+    }
+    @Published var dailyRecords: [DailyRecord] = [] {
+        didSet { if !isLoading { save(dailyRecords, key: Key.dailyRecords) } }
+    }
+    @Published var planOverrides: [PlanTaskOverride] = [] {
+        didSet { if !isLoading { save(planOverrides, key: Key.planOverrides) } }
+    }
+    @Published var extraTasks: [ExtraTaskEntry] = [] {
+        didSet { if !isLoading { save(extraTasks, key: Key.extraTasks) } }
+    }
+    @Published var achievements: [Achievement] = [] {
+        didSet { if !isLoading { save(achievements, key: Key.achievements) } }
+    }
+    @Published var dayReviews: [DayReview] = [] {
+        didSet { if !isLoading { save(dayReviews, key: Key.dayReviews) } }
+    }
+    @Published var periodSummaries: [PeriodSummary] = [] {
+        didSet { if !isLoading { save(periodSummaries, key: Key.periodSummaries) } }
+    }
+    @Published var dailyChallenges: [DailyChallengeEntry] = [] {
+        didSet { if !isLoading { save(dailyChallenges, key: Key.dailyChallenges) } }
+    }
+    @Published var rewardRecords: [RewardRecord] = [] {
+        didSet { if !isLoading { save(rewardRecords, key: Key.rewardRecords) } }
+    }
+    @Published var planJournals: [PlanJournalEntry] = [] {
+        didSet { if !isLoading { save(planJournals, key: Key.planJournals) } }
+    }
     @Published var language: AppLanguage = .chinese {
         didSet {
+            if !isLoading { save(language, key: Key.language) }
             logCurrentLocale()  // [DEBUG] prints to console
-            // Re-seed default goals if user hasn't modified them
-            // (detected by: goal count == 3 and all titles come from default list)
-            let prevDefaults = SuggestionProvider.defaultGoals(oldValue).map(\.title)
-            let currentTitles = goals.map(\.title)
-            let isDefaultSet = currentTitles.count == prevDefaults.count &&
-                               currentTitles.allSatisfy { prevDefaults.contains($0) }
-            if isDefaultSet {
-                goals = []
-                initDefaultGoals()
-            }
         }
     }
-    @Published var userBirthYear: Int                 = 0
-    @Published var simulatedDate: Date?               = nil  // 调试用：nil = 使用真实今日
+    @Published var userBirthYear: Int = 0 {
+        didSet { if !isLoading { ud.set(userBirthYear, forKey: Key.userBirthYear) } }
+    }
+    @Published var simulatedDate: Date? = nil  // 调试用：nil = 使用真实今日
 
     /// 当前「今日」—— 调试时可覆盖
     var today: Date { simulatedDate ?? Date() }
@@ -360,31 +794,21 @@ class AppStore: ObservableObject {
         print("[L10n] lang=\(language.rawValue) | locale=\(language.localeIdentifier) | firstGoal='\(sample)'")
     }
 
-    /// 按当前语言填充示例目标（首次启动时调用）—— 语言正确性由 SuggestionProvider 保证
+    /// 仅首次启动时创建1个示例目标
     func initDefaultGoals() {
         guard goals.isEmpty else { return }
-        logCurrentLocale()   // 打印当前语言到控制台（可用于验证）
+        logCurrentLocale()
         let defaults = SuggestionProvider.defaultGoals(language)
-        let colors = [AppTheme.palette[0], AppTheme.palette[3], AppTheme.palette[4]]
-        let types: [GoalType] = [.longterm, .deadline, .deadline]
-        let ends: [Date?] = [
-            nil,
-            Calendar.current.date(from:DateComponents(year:2026, month:12, day:31)),
-            Calendar.current.date(from:DateComponents(year:2026, month:9, day:30))
+        guard let first = defaults.first else { return }
+        goals = [
+            Goal(title: first.title,
+                 category: first.category,
+                 color: AppTheme.palette[0],
+                 goalType: .longterm,
+                 startDate: Date(),
+                 endDate: nil,
+                 tasks: first.tasks.map { GoalTask(title: $0) })
         ]
-        let starts: [Date] = [
-            Calendar.current.date(byAdding:.day, value:-15, to:Date())!,
-            Date(), Date()
-        ]
-        goals = defaults.enumerated().map { (i, d) in
-            Goal(title: d.title,
-                 category: d.category,
-                 color: colors[min(i, colors.count-1)],
-                 goalType: types[min(i, types.count-1)],
-                 startDate: starts[min(i, starts.count-1)],
-                 endDate: ends[min(i, ends.count-1)],
-                 tasks: d.tasks.map { GoalTask(title:$0) })
-        }
     }
 
     // ── 计算年龄（供 AI 分析用）──────────────────────────────
@@ -546,6 +970,13 @@ class AppStore: ObservableObject {
             dailyRecords.append(DailyRecord(date:date,taskId:taskId,goalId:goalId,progress:progress))
         }
         checkMilestones()
+        // Check reward unlock whenever a task is updated
+        if progress >= 1.0 {
+            trackTaskComplete(goalId: goalId, taskId: taskId, date: date)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                self.checkAllRewards(for: date)
+            }
+        }
     }
 
     // 目标今日整体进度（用于目标页百分比显示）
@@ -561,12 +992,301 @@ class AppStore: ObservableObject {
         return all.map { progress(for:date,taskId:$0.id) }.reduce(0,+) / Double(all.count)
     }
 
+    // ── 奖励记录 ─────────────────────────────────────────────
+
+    func hasReward(level: RewardLevel, periodLabel: String) -> Bool {
+        rewardRecords.contains { $0.level == level && $0.periodLabel == periodLabel }
+    }
+
+    @discardableResult
+    func checkAndGrantDayReward(for date: Date) -> Bool {
+        let cal = Calendar.current
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+        let label = fmt.string(from: date)
+        guard !hasReward(level: .day, periodLabel: label) else { return false }
+        let rate = completionRate(for: date)
+        guard rate >= 1.0 else { return false }
+        // Only grant for past or today (not future)
+        guard cal.startOfDay(for: date) <= cal.startOfDay(for: today) else { return false }
+        let tasks = goals(for:date).flatMap { self.tasks(for:date, goal:$0) }
+        guard !tasks.isEmpty else { return false }
+        rewardRecords.append(RewardRecord(level:.day, date:date, periodLabel:label, completionRate:rate))
+        triggerHaptic(level: .day)
+        return true
+    }
+
+    @discardableResult
+    func checkAndGrantWeekReward(for date: Date) -> Bool {
+        let wl = weekLabelFor(date)
+        guard !hasReward(level: .week, periodLabel: wl) else { return false }
+        let wDates = weekDatesFor(date)
+        let pastDates = wDates.filter { Calendar.current.startOfDay(for:$0) <= Calendar.current.startOfDay(for:today) }
+        guard !pastDates.isEmpty else { return false }
+        // Strict: ≥1 past day must have tasks, and ALL task-having days must be 100%
+        let taskDays = pastDates.filter { d in
+            !goals(for:d).flatMap { self.tasks(for:d, goal:$0) }.isEmpty
+        }
+        guard !taskDays.isEmpty else { return false }  // no vacuous week badge
+        let allPerfect = taskDays.allSatisfy { completionRate(for:$0) >= 1.0 }
+        guard allPerfect else { return false }
+        let rate = avgCompletion(for: pastDates)
+        rewardRecords.append(RewardRecord(level:.week, date:date, periodLabel:wl, completionRate:rate))
+        triggerHaptic(level: .week)
+        return true
+    }
+
+    @discardableResult
+    func checkAndGrantMonthReward(for date: Date) -> Bool {
+        let ml = monthLabelFor(date)
+        guard !hasReward(level: .month, periodLabel: ml) else { return false }
+        let mDates = monthDatesFor(date)
+        let cal = Calendar.current
+        let weeks = splitIntoCalWeeks(mDates)
+        // Only complete weeks (all 7 days past)
+        let pastCompleteWeeks = weeks.filter { wk in
+            wk.allSatisfy { cal.startOfDay(for:$0) <= cal.startOfDay(for:today) }
+        }
+        guard !pastCompleteWeeks.isEmpty else { return false }
+        // Strict: at least one complete week must have task-having days
+        let taskWeeks = pastCompleteWeeks.filter { wk in
+            wk.contains { d in !goals(for:d).flatMap { self.tasks(for:d, goal:$0) }.isEmpty }
+        }
+        guard !taskWeeks.isEmpty else { return false }
+        // All task-having complete weeks must be perfect
+        let allWeeksPerfect = taskWeeks.allSatisfy { isWeekPerfect($0) }
+        guard allWeeksPerfect else { return false }
+        let rate = avgCompletion(for: mDates.filter { cal.startOfDay(for:$0) <= cal.startOfDay(for:today) })
+        rewardRecords.append(RewardRecord(level:.month, date:date, periodLabel:ml, completionRate:rate))
+        triggerHaptic(level: .month)
+        return true
+    }
+
+    @discardableResult
+    func checkAndGrantYearReward(for date: Date) -> Bool {
+        let yl = yearLabelFor(date)
+        guard !hasReward(level: .year, periodLabel: yl) else { return false }
+        let yDates = yearDatesFor(date)
+        let cal = Calendar.current
+        // Year badge requires ALL complete months to have their month badge (all weeks perfect).
+        // A "complete month" = all days are in the past.
+        let months = monthsInYear(yDates)
+        let pastCompleteMonths = months.filter { mDates in
+            mDates.allSatisfy { cal.startOfDay(for:$0) <= cal.startOfDay(for:today) }
+        }
+        guard !pastCompleteMonths.isEmpty else { return false }
+        let allMonthsPerfect = pastCompleteMonths.allSatisfy { mDates in
+            isMonthPerfect(mDates)
+        }
+        guard allMonthsPerfect else { return false }
+        let rate = avgCompletion(for: yDates.filter { cal.startOfDay(for:$0) <= cal.startOfDay(for:today) })
+        rewardRecords.append(RewardRecord(level:.year, date:date, periodLabel:yl, completionRate:rate))
+        triggerHaptic(level: .year)
+        return true
+    }
+
+    // ── Badge query helpers for chart display ────────────────────────
+    /// True if a specific calendar day has earned its day badge (100% completion)
+    func isDayBadgeEarned(for date: Date) -> Bool {
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+        return hasReward(level: .day, periodLabel: fmt.string(from: date))
+    }
+
+    /// True if all 7 days of the given week have 100% completion (for chart overlay)
+    func isWeekBadgeEarned(weekDates: [Date]) -> Bool {
+        return isWeekPerfect(weekDates)
+    }
+
+    /// True if all complete weeks of the given month dates are perfect
+    func isMonthBadgeEarned(monthDates: [Date]) -> Bool {
+        return isMonthPerfect(monthDates)
+    }
+
+    // ── Internal helpers ─────────────────────────────────────────────
+    /// True only when: ≥1 past day has tasks AND all past days with tasks are 100%.
+    /// Days with no tasks are skipped (not counted as perfect, not counted as imperfect).
+    /// Returns false if the entire week has zero task-having days → no vacuous badge.
+    private func isWeekPerfect(_ weekDates: [Date]) -> Bool {
+        let cal = Calendar.current
+        let pastDays = weekDates.filter { cal.startOfDay(for:$0) <= cal.startOfDay(for:today) }
+        guard !pastDays.isEmpty else { return false }
+        // Separate days that actually have tasks from days that don't
+        let taskDays = pastDays.filter { d in
+            !goals(for:d).flatMap { self.tasks(for:d, goal:$0) }.isEmpty
+        }
+        // Strict: there must be at least one day with tasks in this week
+        guard !taskDays.isEmpty else { return false }
+        // All task-having days must be 100% complete
+        return taskDays.allSatisfy { completionRate(for:$0) >= 1.0 }
+    }
+
+    /// True only when: ≥1 complete past week has task-having days AND all such weeks are perfect.
+    /// A "complete week" means all 7 days are in the past.
+    private func isMonthPerfect(_ mDates: [Date]) -> Bool {
+        let cal = Calendar.current
+        let weeks = splitIntoCalWeeks(mDates)
+        // Only consider weeks where all days are in the past (complete weeks)
+        let completeWeeks = weeks.filter { wk in
+            wk.allSatisfy { cal.startOfDay(for:$0) <= cal.startOfDay(for:today) }
+        }
+        guard !completeWeeks.isEmpty else { return false }
+        // Filter to complete weeks that have at least one day with tasks
+        let taskWeeks = completeWeeks.filter { wk in
+            wk.contains { d in !goals(for:d).flatMap { self.tasks(for:d, goal:$0) }.isEmpty }
+        }
+        // Strict: there must be ≥1 task-having complete week
+        guard !taskWeeks.isEmpty else { return false }
+        // All task-having complete weeks must be perfect
+        return taskWeeks.allSatisfy { isWeekPerfect($0) }
+    }
+
+    /// Split month dates into calendar-week arrays (Mon–Sun)
+    private func splitIntoCalWeeks(_ mDates: [Date]) -> [[Date]] {
+        var cal = Calendar.current; cal.firstWeekday = 2
+        let sorted = mDates.sorted()
+        guard let first = sorted.first, let last = sorted.last else { return [] }
+        var weeks: [[Date]] = []
+        var current = cal.dateInterval(of: .weekOfYear, for: first)?.start ?? first
+        let end = last
+        while current <= end {
+            let weekEnd = cal.date(byAdding: .day, value: 7, to: current)!
+            let wDays = sorted.filter { $0 >= current && $0 < weekEnd }
+            if !wDays.isEmpty { weeks.append(wDays) }
+            current = weekEnd
+        }
+        return weeks
+    }
+
+    /// Split year dates into month arrays
+    private func monthsInYear(_ yDates: [Date]) -> [[Date]] {
+        let cal = Calendar.current
+        var groups: [String: [Date]] = [:]
+        for d in yDates {
+            let key = "\(cal.component(.year, from:d))-\(cal.component(.month, from:d))"
+            groups[key, default: []].append(d)
+        }
+        return groups.values.sorted { ($0.first ?? .distantPast) < ($1.first ?? .distantPast) }
+    }
+
+    private func triggerHaptic(level: RewardLevel) {
+        switch level.hapticStrength {
+        case 1: HapticManager.impact(.light)
+        case 2: HapticManager.impact(.medium)
+        case 3: HapticManager.achievementUnlocked()
+        default: break
+        }
+    }
+
+    func weekLabelFor(_ date: Date) -> String {
+        let cal = Calendar.current
+        let wk = cal.component(.weekOfYear, from: date)
+        let yr = cal.component(.year, from: date)
+        return "\(yr)-W\(wk)"
+    }
+    func monthLabelFor(_ date: Date) -> String {
+        let cal = Calendar.current
+        let mo = cal.component(.month, from: date)
+        let yr = cal.component(.year, from: date)
+        return "\(yr)-M\(mo)"
+    }
+    func yearLabelFor(_ date: Date) -> String {
+        "\(Calendar.current.component(.year, from: date))"
+    }
+    private func weekDatesFor(_ date: Date) -> [Date] {
+        var cal = Calendar.current; cal.firstWeekday = 2
+        guard let start = cal.dateInterval(of: .weekOfYear, for: date)?.start else { return [] }
+        return (0..<7).compactMap { cal.date(byAdding:.day, value:$0, to:start) }
+    }
+    private func monthDatesFor(_ date: Date) -> [Date] {
+        let cal = Calendar.current
+        guard let range = cal.range(of:.day, in:.month, for:date),
+              let start = cal.date(from: cal.dateComponents([.year,.month], from: date)) else { return [] }
+        return (0..<range.count).compactMap { cal.date(byAdding:.day, value:$0, to:start) }
+    }
+    private func yearDatesFor(_ date: Date) -> [Date] {
+        let cal = Calendar.current
+        guard let start = cal.date(from: DateComponents(year: cal.component(.year, from:date), month:1, day:1)),
+              let end   = cal.date(from: DateComponents(year: cal.component(.year, from:date)+1, month:1, day:1)) else { return [] }
+        var d = start; var result: [Date] = []
+        while d < end { result.append(d); d = cal.date(byAdding:.day, value:1, to:d)! }
+        return result
+    }
+
+    // Check all reward levels for today — call after any task completion
+    func checkAllRewards(for date: Date) {
+        checkAndGrantDayReward(for: date)
+        checkAndGrantWeekReward(for: date)
+        checkAndGrantMonthReward(for: date)
+        checkAndGrantYearReward(for: date)
+    }
+
+    func rewards(level: RewardLevel) -> [RewardRecord] {
+        rewardRecords.filter { $0.level == level }.sorted { $0.date > $1.date }
+    }
+
+    // ── 计划心得 ─────────────────────────────────────────────
+
+    func planJournals(for date: Date, goalId: UUID? = nil) -> [PlanJournalEntry] {
+        let cal = Calendar.current
+        return planJournals
+            .filter { cal.isDate($0.date, inSameDayAs: date) && (goalId == nil || $0.goalId == goalId) }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    func allPlanJournals(for goalId: UUID) -> [PlanJournalEntry] {
+        planJournals.filter { $0.goalId == goalId }.sorted { $0.date > $1.date }
+    }
+
+    /// Returns all plan journal entries whose date falls within the given date set
+    func planJournalsInPeriod(dates: [Date]) -> [PlanJournalEntry] {
+        let cal = Calendar.current
+        let starts = Set(dates.map { cal.startOfDay(for: $0) })
+        return planJournals
+            .filter { starts.contains(cal.startOfDay(for: $0.date)) }
+            .sorted { $0.date > $1.date }
+    }
+
+    func addPlanJournal(_ entry: PlanJournalEntry) {
+        planJournals.append(entry)
+    }
+
+    func updatePlanJournal(_ entry: PlanJournalEntry) {
+        if let i = planJournals.firstIndex(where: { $0.id == entry.id }) {
+            planJournals[i] = entry
+        }
+    }
+
+    func deletePlanJournal(id: UUID) {
+        planJournals.removeAll { $0.id == id }
+    }
+
     // ── 计划页 ────────────────────────────────────────────
 
     func skipTask(_ taskId: UUID, goalId: UUID, on date: Date) {
         let cal = Calendar.current
         planOverrides.removeAll { $0.taskId==taskId && $0.goalId==goalId && cal.isDate($0.date,inSameDayAs:date) }
         planOverrides.append(PlanTaskOverride(date:date,taskId:taskId,goalId:goalId,isSkipped:true))
+    }
+
+    // Delete a task from a specific day:
+    // - If it's a pinnedDate task (date-scoped): remove it entirely from the goal
+    //   and also clean up any ExtraTaskEntry that made the goal visible on this date.
+    // - If it's a recurring goal task: skip it only on this date
+    func deleteTaskOnDate(_ taskId: UUID, goalId: UUID, on date: Date) {
+        let cal = Calendar.current
+        if let gi = goals.firstIndex(where:{$0.id==goalId}),
+           let ti = goals[gi].tasks.firstIndex(where:{$0.id==taskId}),
+           goals[gi].tasks[ti].pinnedDate != nil {
+            // Pinned task — remove from goal entirely
+            goals[gi].tasks.remove(at: ti)
+            // Also remove the ExtraTaskEntry that registered it (if any)
+            extraTasks.removeAll {
+                $0.taskId == taskId && $0.goalId == goalId
+                    && cal.isDate($0.date, inSameDayAs: date)
+            }
+        } else {
+            // Recurring task — hide only on this date
+            skipTask(taskId, goalId: goalId, on: date)
+        }
     }
 
     func restoreTask(_ taskId: UUID, goalId: UUID, on date: Date) {
@@ -653,10 +1373,27 @@ class AppStore: ObservableObject {
     }
 
     // 只在指定日期添加任务（单日任务，不影响其他天）
+    // 如果该目标本身不覆盖该日期，同时注册 ExtraTaskEntry，
+    // 使 goals(for:date) 能正确返回该目标，今日页和目标页也能同步显示。
     func addPinnedTask(goalId: UUID, title: String, minutes: Int? = nil, on date: Date) {
-        if let gi = goals.firstIndex(where:{$0.id==goalId}) {
-            let task = GoalTask(title:title, estimatedMinutes:minutes, pinnedDate:date)
-            goals[gi].tasks.append(task)
+        guard let gi = goals.firstIndex(where: { $0.id == goalId }) else { return }
+        let task = GoalTask(title: title, estimatedMinutes: minutes, pinnedDate: date)
+        goals[gi].tasks.append(task)
+        // If the goal doesn't naturally cover this date, register ExtraTaskEntry
+        // so goals(for:date) / TodayView / GoalsView all pick up this goal on this day.
+        let cal = Calendar.current
+        if !goals[gi].covers(date) {
+            let alreadyExists = extraTasks.contains {
+                $0.taskId == task.id && $0.goalId == goalId
+                    && cal.isDate($0.date, inSameDayAs: date)
+            }
+            if !alreadyExists {
+                extraTasks.append(ExtraTaskEntry(
+                    date: cal.startOfDay(for: date),
+                    taskId: task.id,
+                    goalId: goalId
+                ))
+            }
         }
     }
     func setGoalDeadline(_ goalId: UUID, to date: Date) {
@@ -674,11 +1411,25 @@ class AppStore: ObservableObject {
 
     // 实时自动保存（不标记 isSubmitted）— 防止 Tab 切换丢失 emoji/文字
     func autoSaveReview(_ r: DayReview) {
+        // Track if this is a final submission
+        if r.isSubmitted { trackReviewSubmitted(r) }
         let cal = Calendar.current
         if let i = dayReviews.firstIndex(where:{ cal.isDate($0.date,inSameDayAs:r.date) }) {
             // 保留原有的 isSubmitted 状态，只更新内容
             var updated = r
             updated.isSubmitted = dayReviews[i].isSubmitted
+            // 保留实时写入的 keywords（由 ChallengeKeywordSection / LiveKeywordSection 直接管理）
+            // draft 可能不包含最新的 keywords，用 store 里已有的避免覆盖
+            let existing = dayReviews[i]
+            if updated.challengeKeywords.isEmpty && !existing.challengeKeywords.isEmpty {
+                updated.challengeKeywords = existing.challengeKeywords
+            }
+            if updated.gainKeywords.isEmpty && !existing.gainKeywords.isEmpty {
+                updated.gainKeywords = existing.gainKeywords
+            }
+            if updated.tomorrowKeywords.isEmpty && !existing.tomorrowKeywords.isEmpty {
+                updated.tomorrowKeywords = existing.tomorrowKeywords
+            }
             dayReviews[i] = updated
         } else {
             // 新的一天，只在有实质内容时才存（避免空记录污染历史）
@@ -987,7 +1738,6 @@ class AppStore: ObservableObject {
 
     // 智能总结：优先使用关键词，fallback 到全文摘要
     func smartSummary(type: Int, label: String, dates: [Date]) -> String {
-        let isCN = (language == .chinese || language == .japanese || language == .korean)
         let avg = avgCompletion(for:dates)
         let mood = avgMood(for:dates)
         let activeDays = dates.filter { completionRate(for:$0) > 0 }.count
@@ -1431,7 +2181,28 @@ class AppStore: ObservableObject {
     }
 
     func weekCompletions() -> [(String,Double,Date)] {
-        let labels=[t("一","Mon"),t("二","Tue"),t("三","Wed"),t("四","Thu"),t("五","Fri"),t("六","Sat"),t("日","Sun")]
+        // Returns (label, rate, date) for each day of the current week.
+        // label is used in bar charts AND in statsRow "Best/Worst" tiles.
+        // Chinese: "周一"…"周日" (full, readable in Best tile)
+        // Other locales: short 3-letter labels from locale-specific names
+        func wd(_ zh:String,_ en:String,_ ja:String,_ ko:String,_ es:String) -> String {
+            switch language {
+            case .chinese:  return zh
+            case .english:  return en
+            case .japanese: return ja
+            case .korean:   return ko
+            case .spanish:  return es
+            }
+        }
+        let labels = [
+            wd("周一","Mon","月","월","Lun"),
+            wd("周二","Tue","火","화","Mar"),
+            wd("周三","Wed","水","수","Mié"),
+            wd("周四","Thu","木","목","Jue"),
+            wd("周五","Fri","金","금","Vie"),
+            wd("周六","Sat","土","토","Sáb"),
+            wd("周日","Sun","日","일","Dom")
+        ]
         return weekDates().enumerated().map { (i,d) in (labels[i],completionRate(for:d),d) }
     }
 
@@ -1502,7 +2273,7 @@ class AppStore: ObservableObject {
         var i = 0
         while i < dates.count {
             let chunk = Array(dates[i..<min(i+7, dates.count)])
-            let refDate = chunk.first!
+            guard let refDate = chunk.first else { i += 7; continue }
             let woy = cal.component(.weekOfYear, from:refDate)
             let yr  = cal.component(.year, from:refDate)
             let lbl = t("第\(wn)周", "Week \(wn)")
@@ -1571,17 +2342,36 @@ class AppStore: ObservableObject {
     // ── 当前周期 label ────────────────────────────────────────
     var currentWeekLabel: String {
         let c = Calendar.current
-        return t("\(c.component(.year,from:today))年第\(c.component(.weekOfYear,from:today))周",
-                 "Week \(c.component(.weekOfYear,from:today)), \(c.component(.year,from:today))")
+        let wk = c.component(.weekOfYear, from:today)
+        let yr = c.component(.year, from:today)
+        switch language {
+        case .chinese:  return "\(yr)年第\(wk)周"
+        case .japanese: return "\(yr)年第\(wk)週"
+        case .korean:   return "\(yr)년 \(wk)주차"
+        case .spanish:  return "Semana \(wk), \(yr)"
+        case .english:  return "Week \(wk), \(yr)"
+        }
     }
     var currentMonthLabel: String {
         let c = Calendar.current
-        return t("\(c.component(.year,from:today))年\(c.component(.month,from:today))月",
-                 "\(c.component(.month,from:today))/\(c.component(.year,from:today))")
+        let mo = c.component(.month, from:today)
+        let yr = c.component(.year, from:today)
+        switch language {
+        case .chinese:  return "\(yr)年\(mo)月"
+        case .japanese: return "\(yr)年\(mo)月"
+        case .korean:   return "\(yr)년 \(mo)월"
+        case .spanish:  return "\(mo)/\(yr)"
+        case .english:  return "\(mo)/\(yr)"
+        }
     }
     var currentYearLabel: String {
-        let c = Calendar.current
-        return t("\(c.component(.year,from:today))年", "\(c.component(.year,from:today))")
+        let yr = Calendar.current.component(.year, from:today)
+        switch language {
+        case .chinese:  return "\(yr)年"
+        case .japanese: return "\(yr)年"
+        case .korean:   return "\(yr)년"
+        case .spanish, .english: return "\(yr)"
+        }
     }
 
     func checkMilestones() {
@@ -1589,9 +2379,11 @@ class AppStore: ObservableObject {
             let streak=currentStreak(for:goal)
             for m in [7,30,100,365] where streak==m {
                 guard !achievements.contains(where:{$0.goalId==goal.id && $0.streakDays==m}) else { continue }
-                achievements.append(Achievement(goalId:goal.id,goalTitle:goal.title,goalColor:goal.color,
+                let milestoneAch = Achievement(goalId:goal.id,goalTitle:goal.title,goalColor:goal.color,
                     level:.milestone,completionRate:1.0,date:Date(),streakDays:m,
-                    description:t("连续坚持 \(m) 天！","Streak: \(m) days!")))
+                    description:t("连续坚持 \(m) 天！","Streak: \(m) days!"))
+                achievements.append(milestoneAch)
+                trackAchievementUnlocked(milestoneAch)
             }
         }
     }
@@ -1787,185 +2579,163 @@ class AppStore: ObservableObject {
 
     // ── AI 任务建议（贴近目标关键词）──────────────────────
 
-    func taskSuggestions(for goal: Goal) -> [String] {
+    func taskSuggestions(for goal: Goal, rotationOffset: Int = 0) -> [String] {
         let title = goal.title
         let cat = goal.category
         let existing = Set(goal.tasks.map(\.title))
         let lower = title.lowercased()
-        let isCN = language == .chinese
 
-        // ══════════════════════════════════════════════════════
-        // B：用户历史任务（最个性化，优先展示）
-        // 读取该目标下用户曾经有过的任务名，过滤掉当前已有的
-        // ══════════════════════════════════════════════════════
-        let historyTasks = goal.tasks.map(\.title)   // 当前任务（已有）
-        // 从 planOverrides / extraTasks 里提取曾经出现过的任务标题
-        let overrideTitles = planOverrides
-            .filter { $0.goalId == goal.id && $0.overrideTitle != nil }
-            .compactMap(\.overrideTitle)
-        // 历史：extraTask里出现的任务ID对应的标题
-        let extraTitles = extraTasks
-            .filter { $0.goalId == goal.id }
-            .compactMap { e in goal.tasks.first(where:{$0.id==e.taskId})?.title }
-        let allHistory = Array(Set(historyTasks + overrideTitles + extraTitles))
-            .filter { !existing.contains($0) }
-
-        // ══════════════════════════════════════════════════════
-        // C：模板填空（从目标 title 提取核心名词）
-        // ══════════════════════════════════════════════════════
-        // 提取核心词：去掉常见助词/动词，保留实质名词
+        // ── Core word extraction for template fill-in ──────────
         let stopWordsCN = ["学会","学习","完成","坚持","达到","实现","每天","每日","养成","提升","掌握","练习","的","了","和","与","及"]
         let stopWordsEN = ["learn","practice","complete","achieve","improve","master","daily","every","a","the","to","and","or","be","do"]
-        let coreWords = isCN
+        let coreWords = (language == .chinese || language == .japanese || language == .korean)
             ? stopWordsCN.reduce(title){ r,w in r.replacingOccurrences(of:w,with:"") }
                 .components(separatedBy:CharacterSet.whitespaces).filter{$0.count>=2}
             : stopWordsEN.reduce(lower){ r,w in r.replacingOccurrences(of:" \(w) ",with:" ") }
                 .components(separatedBy:" ").filter{$0.count>=3}
         let coreName: String
-        if let first = coreWords.first {
-            coreName = first
-        } else {
+        if let first = coreWords.first { coreName = first }
+        else {
             switch language {
-            case .chinese: coreName = "目标"
-            case .japanese: coreName = "目標"
-            case .korean: coreName = "목표"
-            case .spanish: coreName = "meta"
-            case .english: coreName = "goal"
+            case .chinese: coreName = "目标"; case .japanese: coreName = "目標"
+            case .korean: coreName = "목표"; case .spanish: coreName = "meta"; case .english: coreName = "goal"
             }
         }
 
-        let templatesCN = [
-            "今日\(coreName)打卡",
-            "\(coreName)专注25分钟",
-            "记录\(coreName)进展",
-            "回顾\(coreName)动力",
-            "\(coreName)重点突破",
-        ]
-        let templatesEN = [
-            "Daily \(coreName) check-in",
-            "Focus 25min on \(coreName)",
-            "Log \(coreName) progress",
-            "Review \(coreName) motivation",
-            "\(coreName) deep work",
-        ]
-        let templatesJA = [
-            "今日\(coreName)チェック",
-            "\(coreName)に25分集中",
-            "\(coreName)の進捗を記録",
-            "\(coreName)の動機を確認",
-            "\(coreName)の重点突破",
-        ]
-        let templatesKO = [
-            "오늘 \(coreName) 체크",
-            "\(coreName)에 25분 집중",
-            "\(coreName) 진행 기록",
-            "\(coreName) 동기 확인",
-            "\(coreName) 핵심 돌파",
-        ]
-        let templatesES = [
-            "Check-in diario \(coreName)",
-            "Enfócate 25min en \(coreName)",
-            "Registra el progreso de \(coreName)",
-            "Revisa motivación de \(coreName)",
-            "Trabajo profundo en \(coreName)",
-        ]
-        let templates: [String]
-        switch language {
-        case .chinese:  templates = templatesCN.filter { !existing.contains($0) }
-        case .japanese: templates = templatesJA.filter { !existing.contains($0) }
-        case .korean:   templates = templatesKO.filter { !existing.contains($0) }
-        case .spanish:  templates = templatesES.filter { !existing.contains($0) }
-        case .english:  templates = templatesEN.filter { !existing.contains($0) }
+        // ── 5-language keyword pools (action-oriented, specific, varied) ──
+        struct KPool5 {
+            let kw:[String]
+            let zh:[String]; let en:[String]; let ja:[String]; let ko:[String]; let es:[String]
         }
-
-        // ══════════════════════════════════════════════════════
-        // A：关键词词库（40个池，覆盖更多目标类型）
-        // ══════════════════════════════════════════════════════
-        struct KPool { let kw:[String]; let zh:[String]; let en:[String] }
-        let pools:[KPool] = [
+        let pools:[KPool5] = [
             // 健身/运动
-            KPool(kw:["健身","跑步","运动","体能","锻炼","力量","有氧","增肌","瑜伽","游泳","骑行","fitness","run","workout","exercise","gym","yoga","swim","cycle"],
-                  zh:["今日跑量打卡","力量训练组数","热身5分钟","拉伸放松10分","记录体重","补充蛋白质","睡前核心训练","HIIT间歇训练","步行10000步","深蹲100个"],
-                  en:["Log today's run","Track strength sets","5min warm-up","Cool-down stretch","Log weight","Protein intake","Core before bed","HIIT session","10k steps","100 squats"]),
+            KPool5(kw:["健身","跑步","运动","体能","锻炼","力量","有氧","增肌","瑜伽","游泳","骑行","fitness","run","workout","exercise","gym","yoga","swim","cycle","운동","달리기","헬스","요가","健身","运动","トレーニング","筋トレ"],
+                   zh:["今日跑量打卡记录","力量训练：3组×12次","热身5分钟+动态拉伸","训练后拉伸放松10分","记录体重与体脂率","补充蛋白质并记录","睡前核心力量10分","HIIT间歇训练20分","达成10000步目标","完成深蹲100个打卡"],
+                   en:["Log today's run + distance","Strength: 3 sets × 12 reps","5min warm-up + dynamic stretch","Cool-down stretch 10min","Track weight + body fat","Log protein intake","Core circuit before bed","HIIT session 20min","Hit 10k steps goal","100 squat challenge"],
+                   ja:["今日の走行距離を記録","筋トレ：3セット×12回","ウォームアップ5分+動的ストレッチ","クールダウン10分","体重と体脂肪率を記録","プロテイン摂取を記録","就寝前コア10分","HIITトレーニング20分","1万歩達成","スクワット100回チャレンジ"],
+                   ko:["오늘 달리기 거리 기록","근력: 3세트 × 12회","워밍업 5분+동적 스트레칭","쿨다운 스트레칭 10분","체중+체지방률 기록","단백질 섭취 기록","자기 전 코어 10분","HIIT 운동 20분","만보 목표 달성","스쿼트 100개 도전"],
+                   es:["Registrar distancia de hoy","Fuerza: 3 series × 12 reps","Calentamiento 5min+estiramiento","Vuelta a la calma 10min","Registrar peso y grasa corporal","Registrar ingesta de proteína","Core antes de dormir 10min","Sesión HIIT 20min","Meta de 10k pasos","Desafío 100 sentadillas"]),
             // 阅读/书籍
-            KPool(kw:["读书","阅读","看书","书","文学","小说","传记","read","book","novel","reading","literature"],
-                  zh:["今日阅读页数","摘录金句3条","写读后感","画思维导图","书评一段","带着问题读","找到书中核心观点","把书中方法用于今天"],
-                  en:["Pages read today","Note 3 key quotes","Write a reflection","Mind map","Short book review","Read with questions","Find core argument","Apply one idea today"]),
+            KPool5(kw:["读书","阅读","看书","书","文学","小说","传记","read","book","novel","reading","literature","독서","책","読書","本"],
+                   zh:["今日阅读25页并记要点","摘录3条金句写出感想","写读后感200字","用思维导图梳理全书","记录书中一个核心方法并试用","带问题读：找到书的核心论点","把书中1个方法用于今天实践","写短评发现这本书的独特价值"],
+                   en:["Read 25 pages + note key points","Extract 3 quotes + write reaction","Write 200-word reflection","Mind map the whole book","Note one method + apply today","Read with a question: find core argument","Apply one book idea to today","Write a short review: what's unique"],
+                   ja:["25ページ読んで要点メモ","名言3つ抽出+感想記入","200字の読後感を書く","全体をマインドマップで整理","1つのメソッドを今日に適用","問いを持って読む：核心論点を探す","書籍の1アイデアを今日実践","短評：この本の独自性を発見"],
+                   ko:["25쪽 읽고 핵심 메모","명언 3개 발췌+반응 기록","독후감 200자 작성","전체 마인드맵으로 정리","핵심 방법 1개 오늘 적용","질문 가지고 읽기: 핵심 논점 찾기","책의 아이디어 오늘 실천","짧은 리뷰: 이 책의 독창성 발견"],
+                   es:["Leer 25 páginas + anotar puntos clave","Extraer 3 citas + reacción escrita","Escribir reflexión de 200 palabras","Mapa mental del libro completo","Aplicar un método del libro hoy","Leer con pregunta: hallar argumento central","Aplicar una idea del libro hoy","Reseña corta: qué hace único este libro"]),
             // 语言学习
-            KPool(kw:["语言","英语","日语","西班牙","法语","韩语","德语","意大利","口语","词汇","背单词","language","spanish","english","japanese","french","korean","vocab","words"],
-                  zh:["今日新词汇10个","口语跟读15分","听力精听一段","用新词造句5个","复习昨日词汇","看一段外语视频","语法练习一节","用目标语记日记"],
-                  en:["Learn 10 new words","Oral shadowing 15min","Intensive listening","Write 5 sentences","Review yesterday's words","Watch a video in target language","Grammar practice","Journal in target language"]),
+            KPool5(kw:["语言","英语","日语","西班牙","法语","韩语","德语","意大利","口语","词汇","背单词","language","spanish","english","japanese","french","korean","vocab","words","영어","한국어","언어","英語","言語"],
+                   zh:["精听一段播客→记5个新词各造句","Duolingo 1节+跟读3句→复述录音","今日新词10个：看图记忆法","用目标语言写日记100字","语法专项练习一节+做错题分析","看外语视频→用母语概括大意","与AI对话练口语15分钟","复习本周词汇→默写测试"],
+                   en:["Intensive listen to podcast → note 5 words + sentences","Duolingo 1 lesson + shadow 3 sentences + record recap","10 new words: visual memory method","Write 100-word journal in target language","Grammar drill + analyze mistakes","Watch video in target language → summarize in native tongue","Speak with AI 15min oral practice","Review this week's vocab → write from memory"],
+                   ja:["ポッドキャスト精聴→新語5つ+例文作成","Duolingo1レッスン+シャドーイング3文+録音復唱","今日の新語10個：イメージ記憶法","目標言語で日記100字","文法ドリル+ミス分析","外国語動画視聴→母語で要約","AIと口頭練習15分","今週の語彙を復習→書き取りテスト"],
+                   ko:["팟캐스트 정청→단어 5개+문장 작성","Duolingo 1과+섀도잉 3문장+녹음 복기","오늘 새 단어 10개: 이미지 기억법","목표 언어로 일기 100자 쓰기","문법 연습+오답 분석","외국어 영상 시청→모국어로 요약","AI와 회화 연습 15분","이번 주 단어 복습→받아쓰기 테스트"],
+                   es:["Escucha intensiva podcast→5 palabras+frases","Duolingo 1 lección+shadowing 3 frases+grabar resumen","10 palabras nuevas: método visual","Escribir diario 100 palabras en idioma objetivo","Ejercicio gramática+analizar errores","Ver video en idioma objetivo→resumir en lengua nativa","Hablar con AI 15min práctica oral","Repasar vocabulario semanal→dictado"]),
             // 写作/创作
-            KPool(kw:["写作","博客","文章","创作","写字","日记","小说","剧本","write","blog","article","journal","writing","essay","story","script"],
-                  zh:["今日写作字数","修改一段文字","收集写作素材","列写作大纲","解决一个情节难题","描写一个场景","写开头三句","完成一个段落"],
-                  en:["Daily word count","Edit one paragraph","Gather material","Draft an outline","Solve a plot problem","Describe a scene","Write 3 opening lines","Complete one section"]),
+            KPool5(kw:["写作","博客","文章","创作","写字","日记","小说","剧本","write","blog","article","journal","writing","essay","story","script","글쓰기","블로그","작문","ライティング","ブログ"],
+                   zh:["今日写作500字不删改直出","修改昨日文字→精简30%冗余","收集5条写作素材并标注用途","为下篇文章列详细大纲","解决一个卡住的情节/论点","用5种感官描写一个场景","写开头三段→找到最佳切入点","完成一个完整段落并自我点评"],
+                   en:["Write 500 words — no editing, just flow","Edit yesterday's text → cut 30% fluff","Collect 5 writing material + tag purpose","Detailed outline for next article","Solve one stuck plot/argument problem","Describe a scene using all 5 senses","Write 3 opening paragraphs → pick the best","Complete one full section + self-critique"],
+                   ja:["今日500字を書く、修正なし","昨日の文章を編集→30%削減","書く素材を5つ集めて目的を記す","次の記事の詳細なアウトライン","行き詰まったプロット/論点を解決","5感を使った場面描写","書き出し3段落→最良を選ぶ","完全な1セクション+自己批評"],
+                   ko:["오늘 500자 쓰기 — 수정 없이","어제 글 수정→30% 군더더기 삭제","글감 5개 수집+용도 표시","다음 글 상세 목차 작성","막힌 플롯/논점 해결","5가지 감각으로 장면 묘사","도입 3단락 작성→최선 선택","완전한 단락 1개+자기 비평"],
+                   es:["Escribir 500 palabras — sin editar","Editar texto de ayer → recortar 30%","Recolectar 5 materiales + anotar propósito","Esquema detallado del próximo artículo","Resolver un problema de trama/argumento","Describir escena con los 5 sentidos","Escribir 3 párrafos introductorios → elegir el mejor","Completar una sección + autocrítica"]),
             // 编程/开发
-            KPool(kw:["编程","代码","开发","算法","swift","python","java","javascript","code","programming","developer","app","web"],
-                  zh:["完成一个函数","刷一道算法题","阅读技术文档","重构一段代码","写单元测试","解决一个bug","学习一个新API","代码复盘10分钟"],
-                  en:["Complete one function","Solve one algorithm","Read tech docs","Refactor old code","Write unit tests","Fix one bug","Learn one new API","Code review 10min"]),
-            // 冥想/心理
-            KPool(kw:["冥想","正念","减压","心理","情绪","平静","呼吸","meditate","mindful","stress","anxiety","calm","breathe","mental"],
-                  zh:["晨间冥想10分","4-7-8呼吸法","写感恩日记3条","数字断联30分","身体扫描练习","记录情绪变化","专注当下5分钟","睡前放松冥想"],
-                  en:["Morning meditation 10min","4-7-8 breathing","3 gratitude notes","Digital detox 30min","Body scan practice","Track mood changes","Present moment 5min","Sleep meditation"]),
-            // 饮食/减重
-            KPool(kw:["饮食","减肥","减重","体重","健康","热量","营养","diet","weight","lose","nutrition","calories","healthy eating","meal"],
-                  zh:["记录今日饮食","蔬菜份量打卡","饮水2升记录","晚饭七分饱","戒掉一种零食","无糖饮料一天","计算今日热量","慢嚼细咽练习"],
-                  en:["Log meals today","Veggie serving check","Drink 2L water","Stop at 70% full","Skip one snack","No sugar drinks today","Count calories","Eat slowly today"]),
-            // 理财/投资
-            KPool(kw:["理财","投资","存款","记账","资产","股票","基金","finance","invest","savings","budget","money","stock","fund"],
-                  zh:["记录今日支出","复盘本周花费","学一个理财知识","分析一只股票","更新资产表","设本月储蓄目标","读财报一页","控制冲动消费"],
-                  en:["Log daily expenses","Review this week's spending","Learn one finance concept","Analyze one stock","Update asset sheet","Set monthly saving goal","Read one page of financials","Avoid impulse buy"]),
+            KPool5(kw:["编程","代码","开发","算法","swift","python","java","javascript","code","programming","developer","app","web","개발","코딩","알고리즘","プログラミング","コード"],
+                   zh:["完成一个完整功能模块并提交","刷LeetCode中等难度1题并分析复杂度","阅读官方技术文档一章并做笔记","重构一段代码→提升可读性","为昨日功能写单元测试","定位并修复一个具体Bug","学习一个新API/框架并写Demo","代码复盘：找出可改进的3处设计"],
+                   en:["Complete one feature module + commit","Solve one LeetCode medium + analyze complexity","Read one chapter of official docs + notes","Refactor a module → improve readability","Write unit tests for yesterday's feature","Locate + fix one specific bug","Learn one new API/framework + write demo","Code review: find 3 design improvements"],
+                   ja:["機能モジュール1つ完成+コミット","LeetCode中級1問+計算量分析","公式ドキュメント1章読んでメモ","1モジュールのリファクタリング","昨日の機能のユニットテスト作成","具体的なバグを特定して修正","新しいAPI/フレームワークを学びデモ作成","コードレビュー：設計改善点3つ発見"],
+                   ko:["기능 모듈 1개 완성+커밋","LeetCode 중급 1문제+복잡도 분석","공식 문서 1챕터 읽고 노트","모듈 리팩토링→가독성 향상","어제 기능 단위 테스트 작성","특정 버그 찾아서 수정","새 API/프레임워크 학습+데모 작성","코드 리뷰: 설계 개선점 3가지 발견"],
+                   es:["Completar un módulo funcional + commit","Resolver LeetCode medio + analizar complejidad","Leer un capítulo de docs + notas","Refactorizar un módulo → legibilidad","Tests unitarios para feature de ayer","Localizar + corregir un bug específico","Aprender nueva API/framework + demo","Code review: encontrar 3 mejoras de diseño"]),
+            // 冥想/心理健康
+            KPool5(kw:["冥想","正念","减压","心理","情绪","平静","呼吸","meditate","mindful","stress","anxiety","calm","breathe","mental","명상","마음","호흡","瞑想","マインドフル"],
+                   zh:["晨间冥想10分+记录当下感受","4-7-8呼吸法3轮→平复当下情绪","写感恩日记3条：具体事件+感受","数字断联30分钟→记录注意力变化","身体扫描练习：从头到脚15分","情绪日记：标注今日触发点","专注当下5分钟：只观察不评判","睡前放松冥想→记录身体感受"],
+                   en:["Morning meditation 10min + note current feeling","4-7-8 breathing 3 rounds → calm this moment","3 gratitude notes: specific event + feeling","Digital detox 30min → log attention changes","Body scan practice: head to toe 15min","Emotion journal: tag today's triggers","Present moment 5min: observe without judging","Sleep meditation → note body sensations"],
+                   ja:["朝の瞑想10分+今の感覚を記録","4-7-8呼吸法3ラウンド→今を落ち着かせる","感謝日記3つ：具体的出来事+感情","デジタル断捨離30分→注意力変化を記録","ボディスキャン：頭から足まで15分","感情日記：今日のトリガーを記録","今この瞬間5分：判断せず観察","就寝前リラクゼーション瞑想"],
+                   ko:["아침 명상 10분+현재 감정 기록","4-7-8 호흡 3라운드→지금 안정","감사 일기 3가지: 구체적 사건+감정","디지털 디톡스 30분→집중력 변화 기록","바디스캔: 머리부터 발끝까지 15분","감정 일기: 오늘의 트리거 기록","현재 5분: 판단 없이 관찰","수면 전 릴렉세이션 명상"],
+                   es:["Meditación matutina 10min + anotar sensación","Respiración 4-7-8 × 3 rondas → calmar el momento","3 notas de gratitud: evento específico + sentimiento","Desintoxicación digital 30min → registrar cambios atencionales","Escáner corporal: cabeza a pies 15min","Diario emocional: registrar triggers de hoy","Momento presente 5min: observar sin juzgar","Meditación de relajación antes de dormir"]),
             // 工作/效率
-            KPool(kw:["工作","项目","效率","职场","时间管理","专注","work","project","productivity","career","focus","time management","professional"],
-                  zh:["列出今日TOP3任务","深度工作90分钟","清空邮件收件箱","整理项目进度","番茄工作法4轮","15分钟站立会议","整理桌面工作区","拒绝一次不必要会议"],
-                  en:["Pick top 3 tasks","Deep work 90min","Clear email inbox","Update project status","4 Pomodoro rounds","15min standup","Tidy workspace","Decline one unnecessary meeting"]),
-            // 绘画/艺术
-            KPool(kw:["绘画","画画","素描","水彩","设计","艺术","draw","paint","sketch","design","art","illustration","creative"],
-                  zh:["速写一个物体","色彩练习15分","临摹一幅作品","记录创作灵感","研究一位艺术家","完成一个细节","画人物头像练习","整理画材"],
-                  en:["Quick sketch one object","Color practice 15min","Copy one artwork","Note creative ideas","Study one artist","Finish one detail","Portrait practice","Organize art supplies"]),
-            // 音乐/乐器
-            KPool(kw:["音乐","钢琴","吉他","唱歌","乐器","music","piano","guitar","sing","instrument","practice","melody"],
-                  zh:["练习基本音阶","曲目练习20分","节奏训练一段","录制练习片段","学习乐理一节","听分析一首曲子","和弦转换练习","演奏给自己听"],
-                  en:["Practice scales","Play piece 20min","Rhythm drill","Record a practice clip","Learn one music theory concept","Analyze one song","Chord transition drill","Perform for yourself"]),
-            // 社交/人际
-            KPool(kw:["社交","人际","朋友","关系","沟通","表达","social","relationship","friend","communicate","networking","people"],
-                  zh:["主动联系一位朋友","参加一个活动","给家人发消息","学一个沟通技巧","记录今日互动","改进一次表达方式","表达感谢一次","建立一个新联系"],
-                  en:["Reach out to one friend","Attend one event","Message a family member","Learn one communication skill","Log a key interaction","Improve one expression","Express gratitude","Make one new connection"]),
-            // 学习/考试
-            KPool(kw:["学习","考试","备考","复习","课程","知识","study","exam","review","course","learn","knowledge","test"],
-                  zh:["复习一个章节","做一套练习题","整理错题本","制作知识卡片","限时模拟练习","把知识讲给自己听","找到薄弱点","预习明日内容"],
-                  en:["Review one chapter","Complete one practice set","Update error log","Make flashcards","Timed mock test","Explain concept to yourself","Find weak points","Preview tomorrow's content"]),
+            KPool5(kw:["工作","项目","效率","职场","时间管理","专注","work","project","productivity","career","focus","time management","professional","업무","프로젝트","직장","効率","仕事","プロジェクト"],
+                   zh:["列出今日TOP3必完成任务","深度工作块90分钟（关掉一切通知）","清空邮件收件箱并标记行动项","整理项目进度→找到当前卡点","番茄工作法4轮+记录成果","复盘昨日时间分配→找回浪费点","拒绝一次不必要会议/打断","整理桌面与工作区→激活专注模式"],
+                   en:["List today's top 3 must-do tasks","Deep work block 90min (all notifications off)","Clear inbox + tag action items","Update project status → find current blocker","4 Pomodoro rounds + log output","Review yesterday's time allocation → find waste","Decline one unnecessary meeting/interrupt","Tidy workspace → activate focus mode"],
+                   ja:["今日のTOP3必須タスクをリストアップ","ディープワーク90分（通知オフ）","受信箱を空に+アクション項目にタグ","プロジェクト進捗更新→現在のブロッカーを特定","ポモドーロ4ラウンド+成果を記録","昨日の時間配分を振り返る→無駄を発見","不要な会議/割り込みを1つ断る","デスク整理→集中モード起動"],
+                   ko:["오늘 TOP3 필수 작업 목록 작성","딥워크 블록 90분(모든 알림 끄기)","받은 편지함 정리+행동 항목 태그","프로젝트 현황 업데이트→현재 장애물 파악","포모도로 4라운드+성과 기록","어제 시간 배분 복기→낭비 발견","불필요한 회의/방해 1개 거절","책상 정리→집중 모드 활성화"],
+                   es:["Listar las 3 tareas esenciales del día","Bloque de trabajo profundo 90min (sin notificaciones)","Vaciar bandeja de entrada + etiquetar acciones","Actualizar estado del proyecto → encontrar bloqueo","4 rondas Pomodoro + registrar resultados","Revisar distribución de tiempo de ayer → encontrar desperdicio","Rechazar una reunión/interrupción innecesaria","Ordenar escritorio → activar modo concentración"]),
+            // 健康饮食
+            KPool5(kw:["饮食","减肥","减重","体重","健康","热量","营养","diet","weight","lose","nutrition","calories","healthy","meal","식이","다이어트","체중","食事","ダイエット"],
+                   zh:["记录三餐食物+估算热量","蔬菜份量：每餐半盘","饮水2升：设8次提醒","晚饭七分饱→停筷15分钟后自评","戒掉今日一种高糖零食","计算今日净热量差","慢嚼细咽：每口30次练习","记录今日最满意的一餐选择"],
+                   en:["Log all meals + estimate calories","Veggie target: half plate per meal","Drink 2L water: set 8 reminders","Stop at 70% full → wait 15min before more","Skip one high-sugar snack today","Calculate net calorie balance","Mindful eating: 30 chews per bite","Log today's best food choice"],
+                   ja:["全食事を記録+カロリー推定","野菜目標：1食あたり半皿","水2L：8回のリマインダーを設定","腹七分目で止める→15分後に評価","今日の高糖スナックを1つやめる","純カロリー収支を計算","マインドフル食事：1口30回噛む","今日の最良の食事選択を記録"],
+                   ko:["세 끼 식사 기록+칼로리 추정","채소 목표: 매 식사 절반 접시","물 2L: 8번 알림 설정","70% 만복감에서 멈추기→15분 후 재평가","오늘 고당분 간식 1개 패스","순 칼로리 균형 계산","마음챙김 식사: 한 입 30번 씹기","오늘 최고의 음식 선택 기록"],
+                   es:["Registrar todas las comidas + estimar calorías","Meta verduras: medio plato por comida","Beber 2L agua: establecer 8 recordatorios","Parar al 70% lleno → esperar 15min","Omitir un snack alto en azúcar hoy","Calcular balance calórico neto","Comer conscientemente: 30 masticaciones","Registrar la mejor elección alimentaria de hoy"]),
+            // 学习/备考
+            KPool5(kw:["学习","考试","备考","复习","课程","知识","study","exam","review","course","learn","knowledge","test","공부","시험","학습","勉強","試験"],
+                   zh:["复习一个章节+自测理解度","完成一套练习题+错题分析","更新错题本→找出薄弱知识点","制作本章知识卡片5张","限时模拟测试20分钟","用费曼技巧：把概念讲给自己听","找出最薄弱的1个考点集中攻破","预习明日内容→带问题上课"],
+                   en:["Review one chapter + self-test comprehension","Complete one practice set + analyze errors","Update error log → identify weak points","Make 5 knowledge cards for this chapter","Timed mock test 20min","Feynman technique: explain concept to yourself","Find #1 weakest topic + deep dive","Preview tomorrow's content → come with questions"],
+                   ja:["1章復習+理解度を自己テスト","練習問題セット完了+ミス分析","ミスノート更新→弱点を特定","本章の知識カード5枚作成","時間制限模擬テスト20分","ファインマン技法：自分に概念を説明","最も弱い1つのテーマを深掘り","明日の内容を予習→質問を持って臨む"],
+                   ko:["1챕터 복습+이해도 자기 테스트","연습 문제 세트 완료+오답 분석","오답 노트 업데이트→약점 파악","이번 챕터 지식 카드 5장 제작","시간 제한 모의 테스트 20분","파인만 기법: 개념 스스로에게 설명","가장 약한 주제 1개 집중 공략","내일 내용 예습→질문 가지고 가기"],
+                   es:["Revisar un capítulo + autoexamen de comprensión","Completar un set de práctica + analizar errores","Actualizar registro de errores → identificar debilidades","Hacer 5 tarjetas de conocimiento del capítulo","Simulacro cronometrado 20min","Técnica Feynman: explicar el concepto a uno mismo","Identificar el tema más débil + profundizar","Previsualizar contenido de mañana → venir con preguntas"]),
         ]
 
-        // 关键词匹配——同时检查 title 和 category，支持多池合并
+        // ── Keyword matching across title + category ──────────
         var poolMatches: [String] = []
         for pool in pools {
-            if pool.kw.contains(where:{ lower.contains($0) || cat.contains($0) }) {
-                // Chinese/Japanese/Korean use zh pool; others use en pool
-                let suggestions = (language == .chinese || language == .japanese || language == .korean) ? pool.zh : pool.en
+            if pool.kw.contains(where:{ lower.contains($0) || cat.lowercased().contains($0) || title.contains($0) }) {
+                let suggestions: [String]
+                switch language {
+                case .chinese:  suggestions = pool.zh
+                case .english:  suggestions = pool.en
+                case .japanese: suggestions = pool.ja
+                case .korean:   suggestions = pool.ko
+                case .spanish:  suggestions = pool.es
+                }
                 poolMatches.append(contentsOf: suggestions.filter { !existing.contains($0) })
             }
         }
 
-        // ══════════════════════════════════════════════════════
-        // 合并 B + C + A，去重，shuffle 保证每次不同顺序
-        // ══════════════════════════════════════════════════════
+        // ── Generic templates as fallback (fill coreName) ──────
+        let templates: [String]
+        switch language {
+        case .chinese:
+            templates = ["今日\(coreName)专项练习25分钟","记录\(coreName)今日进展","复盘\(coreName)本周收获","制定\(coreName)下一步行动计划","解决\(coreName)中最棘手的难点"].filter{ !existing.contains($0) }
+        case .english:
+            templates = ["25min focused \(coreName) session","Log \(coreName) progress today","Review this week's \(coreName) gains","Plan next action step for \(coreName)","Tackle the hardest \(coreName) challenge"].filter{ !existing.contains($0) }
+        case .japanese:
+            templates = ["\(coreName)の25分集中セッション","\(coreName)の今日の進捗を記録","\(coreName)の今週の成果を振り返る","\(coreName)の次のアクションを計画","\(coreName)の最難関に取り組む"].filter{ !existing.contains($0) }
+        case .korean:
+            templates = ["\(coreName) 25분 집중 세션","\(coreName) 오늘 진행 상황 기록","\(coreName) 이번 주 성과 복기","\(coreName) 다음 행동 계획 수립","\(coreName)의 가장 어려운 과제 도전"].filter{ !existing.contains($0) }
+        case .spanish:
+            templates = ["Sesión de 25min en \(coreName)","Registrar progreso hoy en \(coreName)","Revisar logros semanales de \(coreName)","Planificar próximo paso en \(coreName)","Abordar el reto más difícil de \(coreName)"].filter{ !existing.contains($0) }
+        }
+
+        // ── History tasks (most personalised) ─────────────────
+        let overrideTitles = planOverrides
+            .filter { $0.goalId == goal.id && $0.overrideTitle != nil }
+            .compactMap(\.overrideTitle)
+        let allHistory = Array(Set(overrideTitles)).filter { !existing.contains($0) }
+
+        // ── Merge: pool matches first, then templates, then history ──
         var result: [String] = []
-        // B 历史任务优先（最多2条）
-        result.append(contentsOf: allHistory.prefix(2))
-        // A 关键词匹配（最多6条）
-        let poolFiltered = poolMatches.filter { !result.contains($0) }
-        result.append(contentsOf: poolFiltered.prefix(6))
-        // C 模板填空（补充到最多8条）
+        // Use rotationOffset to deterministically rotate through pool items on each refresh
+        let poolCount = poolMatches.count
+        if poolCount > 0 {
+            let startIdx = (rotationOffset * 4) % poolCount   // shift window by 4 each refresh
+            var rotated = poolMatches
+            // Rotate the array so different items lead each time
+            rotated = Array(poolMatches[startIdx...] + poolMatches[..<startIdx])
+            result.append(contentsOf: rotated.prefix(5))
+        }
         let templatesFiltered = templates.filter { !result.contains($0) }
-        result.append(contentsOf: templatesFiltered.prefix(max(0, 8 - result.count)))
-        // 如果全部都空，用 SuggestionProvider 多语言兜底
+        // Also rotate templates by a different stride
+        let tCount = templatesFiltered.count
+        if tCount > 0 {
+            let tStart = (rotationOffset * 2) % tCount
+            let rotatedT = Array(templatesFiltered[tStart...] + templatesFiltered[..<tStart])
+            result.append(contentsOf: rotatedT.prefix(max(0, 5 - result.count)))
+        }
+        result.append(contentsOf: allHistory.filter { !result.contains($0) }.prefix(2))
         if result.isEmpty {
             result = SuggestionProvider.fallbackTaskSuggestions(language)
                 .filter { !existing.contains($0) }
         }
-        // 每次调用 shuffle，让「刷新」有新鲜感
-        return Array(result.shuffled().prefix(8))
+        // Return 4-5 diverse suggestions — offset ensures variety across refreshes
+        return Array(result.prefix(5))
     }
 
 
@@ -1973,7 +2743,6 @@ class AppStore: ObservableObject {
     // ── 我的成长层级数据辅助 ──────────────────────────────────
     func allGrowthYears() -> [GrowthYearEntry] {
         let cal = Calendar.current
-        let isCN = language == .chinese
         var yearSet = Set<Int>()
         for r in dayReviews where r.isSubmitted || !r.gainKeywords.isEmpty || !r.tomorrowKeywords.isEmpty {
             yearSet.insert(cal.component(.year, from:r.date))
@@ -1986,7 +2755,12 @@ class AppStore: ObservableObject {
             yearSet.insert(cal.component(.year, from:ps.startDate))
         }
         return yearSet.sorted(by:>).map { year in
-            let label = isCN ? "\(year)年" : "\(year)"
+            let label: String
+            switch language {
+            case .chinese, .japanese: label = "\(year)年"
+            case .korean:   label = "\(year)년"
+            case .english, .spanish: label = "\(year)"
+            }
             let dates = allDatesInYear(year)
             return GrowthYearEntry(year:year, label:label, dates:dates)
         }
@@ -2005,7 +2779,6 @@ class AppStore: ObservableObject {
 
     func monthsInYear(_ year: Int) -> [GrowthMonthEntry] {
         let cal = Calendar.current
-        let isCN = language == .chinese
         return (1...12).compactMap { month -> GrowthMonthEntry? in
             var comps = DateComponents(); comps.year = year; comps.month = month; comps.day = 1
             guard let start = cal.date(from:comps),
@@ -2013,10 +2786,21 @@ class AppStore: ObservableObject {
             var dates: [Date] = []
             var d = start
             while d < end { dates.append(d); d = cal.date(byAdding:.day,value:1,to:d)! }
-            let fmt = DateFormatter()
-            fmt.locale = Locale(identifier: isCN ? "zh_CN":"en_US")
-            fmt.dateFormat = isCN ? "M月" : "MMMM"
-            let label = isCN ? "\(year)年\(month)月" : fmt.string(from:start)
+            let label: String
+            switch language {
+            case .chinese, .japanese: label = "\(year)年\(month)月"
+            case .korean:   label = "\(year)년 \(month)월"
+            case .spanish:
+                let fmt = DateFormatter()
+                fmt.locale = Locale(identifier: "es")
+                fmt.dateFormat = "MMMM"
+                label = fmt.string(from:start)
+            case .english:
+                let fmt = DateFormatter()
+                fmt.locale = Locale(identifier: "en_US")
+                fmt.dateFormat = "MMMM"
+                label = fmt.string(from:start)
+            }
             let key = "\(year)-\(month)"
             return GrowthMonthEntry(label:label, key:key, dates:dates)
         }
@@ -2024,7 +2808,6 @@ class AppStore: ObservableObject {
 
     func weeksInMonth(_ dates: [Date]) -> [GrowthWeekEntry] {
         let cal = Calendar.current
-        let isCN = language == .chinese
         var weekMap: [Int:[Date]] = [:]
         var weekYear: [Int:Int] = [:]
         for d in dates {
@@ -2035,9 +2818,16 @@ class AppStore: ObservableObject {
         }
         return weekMap.keys.sorted(by:>).map { w in
             let y = weekYear[w] ?? cal.component(.year, from:dates.first ?? Date())
-            let label = isCN ? "\(y)年第\(w)周" : "Week \(w), \(y)"
+            let label: String
+            switch language {
+            case .chinese:  label = "\(y)年第\(w)周"
+            case .japanese: label = "\(y)年第\(w)週"
+            case .korean:   label = "\(y)년 \(w)주차"
+            case .spanish:  label = "Semana \(w), \(y)"
+            case .english:  label = "Week \(w), \(y)"
+            }
             let key = "\(y)-W\(w)"
-            return GrowthWeekEntry(label:label, key:key, dates:weekMap[w]!.sorted())
+            return GrowthWeekEntry(label:label, key:key, dates:(weekMap[w] ?? []).sorted())
         }
     }
 
@@ -2054,10 +2844,24 @@ class AppStore: ObservableObject {
 // MARK: - 工具
 // ============================================================
 
+// ── Unified date formatter — locale-aware, never hardcodes en_US ──────────
+// Maps AppLanguage to its canonical BCP-47 locale.
+// Unicode CLDR date formats (EEEE, MMM, d, etc.) are applied with the
+// correct locale, so "March 4" becomes "4 de marzo" in Spanish,
+// "3月4日" in Japanese, "3월 4일" in Korean, etc.
 func formatDate(_ date: Date, format: String = "M月d日 EEEE", lang: AppLanguage = .chinese) -> String {
-    let f=DateFormatter(); f.dateFormat=format
-    f.locale=Locale(identifier:lang == .chinese ? "zh_CN":"en_US")
-    return f.string(from:date)
+    let localeId: String
+    switch lang {
+    case .chinese:  localeId = "zh_CN"
+    case .english:  localeId = "en_US"
+    case .japanese: localeId = "ja_JP"
+    case .korean:   localeId = "ko_KR"
+    case .spanish:  localeId = "es_ES"
+    }
+    let f = DateFormatter()
+    f.dateFormat = format
+    f.locale = Locale(identifier: localeId)
+    return f.string(from: date)
 }
 
 func startOfWeek() -> Date {
@@ -2219,5 +3023,29 @@ struct SeededRNG {
     mutating func next() -> UInt64 {
         state ^= state << 13; state ^= state >> 7; state ^= state << 17
         return state
+    }
+}
+
+// ============================================================
+// MARK: - 安全索引 & 心情常量
+// ============================================================
+
+extension Collection {
+    /// Safe subscript — returns nil instead of crashing on out-of-bounds access
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
+    }
+}
+
+/// Centralized mood emoji array (avoids scattered hardcoded arrays)
+enum MoodEmoji {
+    /// Index 0 is empty (rating 0 = unset), 1-5 = mood levels
+    static let indexed = ["", "😞", "😶", "🙂", "🤍", "✨"]
+    /// 0-indexed (for ForEach 0..<5)
+    static let flat = ["😞", "😶", "🙂", "🤍", "✨"]
+
+    /// Safe access: returns emoji for rating 1-5, or "" for invalid
+    static func emoji(for rating: Int) -> String {
+        indexed[safe: rating] ?? ""
     }
 }

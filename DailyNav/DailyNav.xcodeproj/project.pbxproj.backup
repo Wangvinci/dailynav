@@ -6,9 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		BFDFD2A92F6FF39A00CFA865 /* StoreKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BFDFD2A82F6FF39A00CFA865 /* StoreKit.framework */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		BF584EE02F4F7E5000800167 /* DailyNav.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DailyNav.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		BFDFD2842F6E020900CFA865 /* DailyNav.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = DailyNav.xcodeproj; sourceTree = "<group>"; };
+		BFDFD2A82F6FF39A00CFA865 /* StoreKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = StoreKit.framework; path = System/Library/Frameworks/StoreKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -24,6 +28,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BFDFD2A92F6FF39A00CFA865 /* StoreKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -34,6 +39,7 @@
 			isa = PBXGroup;
 			children = (
 				BF584EE22F4F7E5000800167 /* DailyNav */,
+				BFDFD2A72F6FF39A00CFA865 /* Frameworks */,
 				BF584EE12F4F7E5000800167 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -46,11 +52,12 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		BFDFD2852F6E020900CFA865 /* Products */ = {
+		BFDFD2A72F6FF39A00CFA865 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				BFDFD2A82F6FF39A00CFA865 /* StoreKit.framework */,
 			);
-			name = Products;
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -90,7 +97,6 @@
 				TargetAttributes = {
 					BF584EDF2F4F7E5000800167 = {
 						CreatedOnToolsVersion = 26.2;
-						LastSwiftMigration = 2620;
 					};
 				};
 			};
@@ -106,12 +112,6 @@
 			preferredProjectObjectVersion = 77;
 			productRefGroup = BF584EE12F4F7E5000800167 /* Products */;
 			projectDirPath = "";
-			projectReferences = (
-				{
-					ProductGroup = BFDFD2852F6E020900CFA865 /* Products */;
-					ProjectRef = BFDFD2842F6E020900CFA865 /* DailyNav.xcodeproj */;
-				},
-			);
 			projectRoot = "";
 			targets = (
 				BF584EDF2F4F7E5000800167 /* DailyNav */,
@@ -266,7 +266,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 3374SXVWY2;
@@ -289,8 +288,6 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "DailyNav/DailyNav-Bridging-Header.h";
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -302,7 +299,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 3374SXVWY2;
@@ -325,7 +321,6 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "DailyNav/DailyNav-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";

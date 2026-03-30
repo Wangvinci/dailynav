@@ -9,27 +9,71 @@ import SwiftUI
 // ============================================================
 
 // ─────────────────────────────────────────────────────────────
-// MARK: 1.  Type Scale  (single source of truth)
+// MARK: 1.  Type Scale  —  SINGLE SOURCE OF TRUTH
+//
+// Philosophy: 8-stop harmonic scale, .rounded design everywhere.
+// Numbers always monospacedDigit(). No raw pt values elsewhere.
+//
+//   Display   ──  72 / 36   hero stats (full-page numerals)
+//   Title     ──  20        page hero title
+//   Heading   ──  16        prominent card heading
+//   Label     ──  13        section titles, card labels  ← primary UI text
+//   Body      ──  13        body / insight / content     (same size, diff weight)
+//   Caption   ──  11        secondary labels, sub-text
+//   Micro     ──  10        badges, counters, tiny icons
+//   Nano      ──   8        chart axis ticks, divider marks (use sparingly)
+//
+// Colour guidance:
+//   Label / Body  →  textPrimary .opacity(0.88)   weight .regular / .medium
+//   Caption       →  textSecondary .opacity(0.66)  weight .regular
+//   Micro         →  textTertiary  .opacity(0.50)  weight .regular
+//   Nano          →  textTertiary  .opacity(0.35)  weight .regular
+//   Numbers       →  accent / gold / textSecondary  weight .light
 // ─────────────────────────────────────────────────────────────
 enum DSTSize {
-    /// Page hero title  —  34 pt  medium
-    static let pageLarge:    CGFloat = 34
-    /// Section / card title  —  18 pt  medium
-    static let cardTitle:    CGFloat = 18
-    /// Sub-section label  —  15 pt  regular
-    static let body:         CGFloat = 15
-    /// Small body  —  14 pt  regular
-    static let bodySmall:    CGFloat = 14
-    /// Caption / helper  —  12 pt  regular
-    static let caption:      CGFloat = 12
-    /// Micro label / tab  —  11 pt  regular
-    static let micro:        CGFloat = 11
-    /// Large numeric (stats / %) — 28 pt  medium  monospaced
-    static let numberLarge:  CGFloat = 28
-    /// Medium numeric (card stats) — 20 pt  medium  monospaced
-    static let numberMid:    CGFloat = 20
-    /// Small numeric (inline) — 15 pt  medium  monospaced
-    static let numberSmall:  CGFloat = 15
+
+    // ── Numeric display  (hero stats, big %s) ─────────────────
+    /// Full-page hero number  —  72 pt  ultraLight  rounded
+    static let displayHero:  CGFloat = 72
+    /// Large card stat  —  36 pt  ultraLight  rounded
+    static let displayLarge: CGFloat = 36
+    /// Medium card stat  —  21 pt  light  rounded
+    static let displayMid:   CGFloat = 21
+    /// Inline stat / date number  —  16 pt  light  rounded
+    static let displaySmall: CGFloat = 16
+
+    // ── Prose hierarchy ───────────────────────────────────────
+    /// Page hero title  —  20 pt  semibold  rounded
+    static let titlePage:    CGFloat = 20
+    /// Card / section heading  —  16 pt  semibold  rounded
+    static let titleCard:    CGFloat = 16
+    /// Primary label — section titles, card headers  —  13 pt  semibold  rounded
+    static let label:        CGFloat = 13
+    /// Body / content text  —  13 pt  regular  rounded
+    static let body:         CGFloat = 13
+    /// Secondary labels, sub-text  —  11 pt  regular  rounded
+    static let caption:      CGFloat = 11
+    /// Badges, counters, tab labels  —  10 pt  regular  rounded
+    static let micro:        CGFloat = 10
+    /// Chart ticks, hairline marks  —   8 pt  regular  rounded  (use sparingly)
+    static let nano:         CGFloat = 8
+
+    // ── Legacy aliases  (do not add new usages) ───────────────
+    // These keep backward compatibility with code already using old names.
+    static var pageLarge:    CGFloat { titlePage }
+    static var cardTitle:    CGFloat { titleCard }
+    static var bodySmall:    CGFloat { body }
+    static var numberLarge:  CGFloat { displayLarge }
+    static var numberMid:    CGFloat { displayMid }
+    static var numberSmall:  CGFloat { displaySmall }
+
+    // ── MyPage card system  (mapped to canonical scale) ───────
+    static var sectionTitle: CGFloat { label }       // 13 semibold
+    static var sectionSub:   CGFloat { caption }     // 11 regular
+    static var statValue:    CGFloat { displayMid }  // 21 light
+    static var cardBody:     CGFloat { body }        // 13 regular
+    static var cardCaption:  CGFloat { caption }     // 11 regular
+    static var cardMicro:    CGFloat { micro }       // 10 regular
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -456,13 +500,51 @@ struct DreamGlassCard<Content: View>: View {
 }
 
 // ── 7c.  DecoQuoteMark  ──────────────────────────────────────
-/// Large decorative opening quote — low opacity watermark.
+/// Refined decorative opening quote — subtle, atmospheric.
 struct DecoQuoteMark: View {
+    var size: CGFloat = 42
+    var opacity: Double = 0.10
     var body: some View {
         Text("\u{201C}")
-            .font(.system(size: 88, weight: .ultraLight, design: .serif))
-            .foregroundColor(AppTheme.accent.opacity(0.13))
-            .shadow(color: AppTheme.accent.opacity(0.10), radius: 16, x: 0, y: 0)
+            .font(.system(size: size, weight: .thin, design: .serif))
+            .foregroundColor(AppTheme.accent.opacity(opacity))
+            .shadow(color: AppTheme.accent.opacity(0.06), radius: 12, x: 0, y: 0)
+    }
+}
+
+// ── 7c-ext.  QuoteTypography  ────────────────────────────────
+/// Adaptive typography for the literary quote card.
+///
+/// Design principle: text should feel like a page from a beautiful book,
+/// not a UI label. Short quotes breathe like posters; long quotes compress
+/// gracefully but never feel cramped.
+///
+/// All font weights are .light — heavier weights kill the quiet mood.
+struct QuoteTypography {
+    let fontSize: CGFloat
+    let lineSpacing: CGFloat
+    let topPadding: CGFloat
+    let authorSpacing: CGFloat
+    let maxWidthRatio: CGFloat  // fraction of card width
+
+    static func forText(_ text: String) -> QuoteTypography {
+        let len = text.count
+        if len <= 35 {
+            // Very short — poster impact
+            return QuoteTypography(fontSize: 19, lineSpacing: 11, topPadding: 8, authorSpacing: 26, maxWidthRatio: 0.68)
+        } else if len <= 70 {
+            // Short — spacious literary page
+            return QuoteTypography(fontSize: 17, lineSpacing: 9, topPadding: 5, authorSpacing: 22, maxWidthRatio: 0.70)
+        } else if len <= 120 {
+            // Medium — balanced and elegant
+            return QuoteTypography(fontSize: 15.5, lineSpacing: 8, topPadding: 3, authorSpacing: 20, maxWidthRatio: 0.72)
+        } else if len <= 180 {
+            // Long — tighter but preserving rhythm
+            return QuoteTypography(fontSize: 14.5, lineSpacing: 7, topPadding: 2, authorSpacing: 18, maxWidthRatio: 0.74)
+        } else {
+            // Very long — compact, still dignified
+            return QuoteTypography(fontSize: 13.5, lineSpacing: 5.5, topPadding: 0, authorSpacing: 14, maxWidthRatio: 0.76)
+        }
     }
 }
 
@@ -526,7 +608,122 @@ struct GlassActionButton: View {
     }
 }
 
-// ── 7e.  ArtAtmosphereLayer  ─────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// MARK: 8.  Glass Imprint Title  — "OW quality" page header
+// Philosophy: Overwatch-style chrome lettering.
+// Dark base → inner shadow (depth) → outer glow (edge light).
+// Two stroke layers simulate glass edge refraction.
+// No blur on the fill — crisp base keeps readability absolute.
+// ─────────────────────────────────────────────────────────────
+
+// ── 8a.  Design Tokens ──────────────────────────────────────
+enum GlassTitleToken {
+    // Font — reduced from 38 to 28 for a more mature, restrained feel.
+    // 28pt semibold rounded is confident without being loud.
+    static let size:     CGFloat = 28
+    static let weight:   Font.Weight = .semibold
+    static let tracking: CGFloat = -0.3            // slightly tighter = premium
+
+    // Fill opacity (base text colour)
+    static let fillOpacity:      Double = 0.90    // crisp but not harsh
+
+    // Inner shadow — simulates pressed-into-surface depth
+    static let innerShadowY:     CGFloat = 1.0
+    static let innerShadowR:     CGFloat = 0       // 0 = sharp edge
+    static let innerShadowOp:    Double  = 0.40    // softer
+
+    // Outer surface glow — the chrome/neon edge highlight
+    static let glowRadius:       CGFloat = 2.5
+    static let glowOpacity:      Double  = 0.40    // quieter accent glow
+
+    // Specular sheen highlight (white edge at top)
+    static let shineRadius:      CGFloat = 0
+    static let shineY:           CGFloat = -0.8   // above the glyph
+    static let shineOpacity:     Double  = 0.35   // restrained — not a beacon
+
+    // Ambient bloom (ultra-wide, very soft — barely there)
+    static let bloomRadius:      CGFloat = 10
+    static let bloomOpacity:     Double  = 0.18
+}
+
+// ── 8b.  GlassImprintTitle view ──────────────────────────────
+/// Full-bleed glass-imprint page title.
+/// Usage: GlassImprintTitle(store.t(key: L10n.goals))
+struct GlassImprintTitle: View {
+    let text: String
+    var accentColor: Color = AppTheme.accent
+    var fontSize: CGFloat = GlassTitleToken.size      // override for compact/nav use
+
+    var body: some View {
+        Text(text)
+            // ── Typographic base ──
+            .font(.system(size: fontSize,
+                          weight: GlassTitleToken.weight,
+                          design: .default))
+            .tracking(GlassTitleToken.tracking)
+            .foregroundColor(AppTheme.textPrimary.opacity(GlassTitleToken.fillOpacity))
+
+            // ── Layer 1: inner shadow (depth impression) ──
+            // Simulates the "pressed" inset by darkening top edge
+            .shadow(
+                color: Color.black.opacity(GlassTitleToken.innerShadowOp),
+                radius: GlassTitleToken.innerShadowR,
+                x: 0, y: GlassTitleToken.innerShadowY
+            )
+            // ── Layer 2: specular sheen highlight ──
+            // Thin bright line along upper edge = glass refraction
+            .shadow(
+                color: Color.white.opacity(GlassTitleToken.shineOpacity),
+                radius: GlassTitleToken.shineRadius,
+                x: 0, y: GlassTitleToken.shineY
+            )
+            // ── Layer 3: neon edge glow (accent colour) ──
+            .shadow(
+                color: accentColor.opacity(GlassTitleToken.glowOpacity),
+                radius: GlassTitleToken.glowRadius,
+                x: 0, y: 0
+            )
+            // ── Layer 4: ambient bloom ──
+            .shadow(
+                color: accentColor.opacity(GlassTitleToken.bloomOpacity),
+                radius: GlassTitleToken.bloomRadius,
+                x: 0, y: 0
+            )
+    }
+}
+
+// ── 8c.  PageHeaderView ──────────────────────────────────────
+/// Full page header block: glass title + optional subtitle.
+/// Provides uniform top-padding, left-alignment, and spacing.
+/// Usage: PageHeaderView(title: store.t(key: L10n.goals), subtitle: "3 active")
+struct PageHeaderView: View {
+    let title: String
+    var subtitle: String = ""
+    var accentColor: Color = AppTheme.accent
+
+    // Uniform layout tokens
+    static let topPad:    CGFloat = 4     // below nav bar safe area
+    static let sidePad:   CGFloat = 20    // left/right content margin
+    static let botPad:    CGFloat = 6     // space before first content card
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            GlassImprintTitle(text: title, accentColor: accentColor)
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.system(size: DSTSize.caption, weight: .regular, design: .rounded))
+                    .foregroundColor(AppTheme.textTertiary.opacity(0.65))
+                    .tracking(0.2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top,  PageHeaderView.topPad)
+        .padding(.horizontal, PageHeaderView.sidePad)
+        .padding(.bottom, PageHeaderView.botPad)
+    }
+}
+
+
 /// Generates a purely-code atmospheric "painting" background —
 /// zero assets required, based on layered gradients + noise sim.
 /// Visually evokes impressionist watercolours at near-zero opacity.
@@ -600,5 +797,33 @@ struct ArtAtmosphereLayer: View {
             .allowsHitTesting(false)
             .clipped()
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// MARK: 9.  Unified Section Header — single source, all modules
+//
+// Every card header in Today/My page MUST use this component.
+// Tokens: icon=cardMicro/medium, title=sectionTitle/semibold,
+//         color=accent.0.60 / textPrimary.0.88
+// ─────────────────────────────────────────────────────────────
+struct DSCardHeader: View {
+    let icon: String          // SF Symbol name
+    let title: String
+    var trailing: AnyView? = nil   // optional right-side content
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: DSTSize.cardMicro, weight: .medium, design: .rounded))
+                .foregroundColor(AppTheme.accent.opacity(0.60))
+            Text(title)
+                .font(.system(size: DSTSize.sectionTitle, weight: .semibold, design: .rounded))
+                .foregroundColor(AppTheme.textPrimary.opacity(0.88))
+                .kerning(0.3)
+            Spacer()
+            if let t = trailing { t }
+        }
+        .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
     }
 }

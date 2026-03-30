@@ -3,21 +3,44 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 63;
 	objects = {
+
+/* Begin PBXBuildFile section */
+		BF584F001234567890AABB00 /* DailyNavApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF584F011234567890AABB01 /* DailyNavApp.swift */; };
+		BF584F021234567890AABB02 /* DailyNavData.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF584F031234567890AABB03 /* DailyNavData.swift */; };
+		BF584F041234567890AABB04 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF584F051234567890AABB05 /* ContentView.swift */; };
+		BF584F061234567890AABB06 /* Designsystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF584F071234567890AABB07 /* Designsystem.swift */; };
+		BF584F081234567890AABB08 /* Settingsview.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF584F091234567890AABB09 /* Settingsview.swift */; };
+		BF584F0A1234567890AABB0A /* HapticManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF584F0B1234567890AABB0B /* HapticManager.swift */; };
+		BF584F0C1234567890AABB0C /* L10n.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF584F0D1234567890AABB0D /* L10n.swift */; };
+		BF584F0E1234567890AABB0E /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF584F0F1234567890AABB0F /* NotificationManager.swift */; };
+		BF584F101234567890AABB10 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF584F111234567890AABB11 /* OnboardingView.swift */; };
+		BF584F121234567890AABB12 /* PalettePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF584F131234567890AABB13 /* PalettePreview.swift */; };
+		BF584F141234567890AABB14 /* Analytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF584F151234567890AABB15 /* Analytics.swift */; };
+		BF584F161234567890AABB16 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BF584F171234567890AABB17 /* Assets.xcassets */; };
+		BF584F181234567890AABB18 /* privacy.html in Resources */ = {isa = PBXBuildFile; fileRef = BF584F191234567890AABB19 /* privacy.html */; };
+		BF584F1A1234567890AABB1A /* terms.html in Resources */ = {isa = PBXBuildFile; fileRef = BF584F1B1234567890AABB1B /* terms.html */; };
+/* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		BF584EE02F4F7E5000800167 /* DailyNav.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DailyNav.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		BFDFD2842F6E020900CFA865 /* DailyNav.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = DailyNav.xcodeproj; sourceTree = "<group>"; };
+		BF584F011234567890AABB01 /* DailyNavApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyNavApp.swift; sourceTree = "<group>"; };
+		BF584F031234567890AABB03 /* DailyNavData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyNavData.swift; sourceTree = "<group>"; };
+		BF584F051234567890AABB05 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		BF584F071234567890AABB07 /* Designsystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Designsystem.swift; sourceTree = "<group>"; };
+		BF584F091234567890AABB09 /* Settingsview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settingsview.swift; sourceTree = "<group>"; };
+		BF584F0B1234567890AABB0B /* HapticManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HapticManager.swift; sourceTree = "<group>"; };
+		BF584F0D1234567890AABB0D /* L10n.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10n.swift; sourceTree = "<group>"; };
+		BF584F0F1234567890AABB0F /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
+		BF584F111234567890AABB11 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		BF584F131234567890AABB13 /* PalettePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PalettePreview.swift; sourceTree = "<group>"; };
+		BF584F151234567890AABB15 /* Analytics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Analytics.swift; sourceTree = "<group>"; };
+		BF584F171234567890AABB17 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		BF584F191234567890AABB19 /* privacy.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = privacy.html; sourceTree = "<group>"; };
+		BF584F1B1234567890AABB1B /* terms.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = terms.html; sourceTree = "<group>"; };
+		BF584F1D1234567890AABB1D /* DailyNav-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "DailyNav-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
-
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		BF584EE22F4F7E5000800167 /* DailyNav */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = DailyNav;
-			sourceTree = "<group>";
-		};
-/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		BF584EDD2F4F7E5000800167 /* Frameworks */ = {
@@ -46,11 +69,26 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		BFDFD2852F6E020900CFA865 /* Products */ = {
+		BF584EE22F4F7E5000800167 /* DailyNav */ = {
 			isa = PBXGroup;
 			children = (
+				BF584F011234567890AABB01 /* DailyNavApp.swift */,
+				BF584F031234567890AABB03 /* DailyNavData.swift */,
+				BF584F051234567890AABB05 /* ContentView.swift */,
+				BF584F071234567890AABB07 /* Designsystem.swift */,
+				BF584F091234567890AABB09 /* Settingsview.swift */,
+				BF584F0B1234567890AABB0B /* HapticManager.swift */,
+				BF584F0D1234567890AABB0D /* L10n.swift */,
+				BF584F0F1234567890AABB0F /* NotificationManager.swift */,
+				BF584F111234567890AABB11 /* OnboardingView.swift */,
+				BF584F131234567890AABB13 /* PalettePreview.swift */,
+				BF584F151234567890AABB15 /* Analytics.swift */,
+				BF584F171234567890AABB17 /* Assets.xcassets */,
+				BF584F191234567890AABB19 /* privacy.html */,
+				BF584F1B1234567890AABB1B /* terms.html */,
+				BF584F1D1234567890AABB1D /* DailyNav-Bridging-Header.h */,
 			);
-			name = Products;
+			name = DailyNav;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -67,9 +105,6 @@
 			buildRules = (
 			);
 			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				BF584EE22F4F7E5000800167 /* DailyNav */,
 			);
 			name = DailyNav;
 			packageProductDependencies = (
@@ -90,11 +125,11 @@
 				TargetAttributes = {
 					BF584EDF2F4F7E5000800167 = {
 						CreatedOnToolsVersion = 26.2;
-						LastSwiftMigration = 2620;
 					};
 				};
 			};
 			buildConfigurationList = BF584EDB2F4F7E5000800167 /* Build configuration list for PBXProject "DailyNav" */;
+			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -103,15 +138,8 @@
 			);
 			mainGroup = BF584ED72F4F7E5000800167;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 77;
 			productRefGroup = BF584EE12F4F7E5000800167 /* Products */;
 			projectDirPath = "";
-			projectReferences = (
-				{
-					ProductGroup = BFDFD2852F6E020900CFA865 /* Products */;
-					ProjectRef = BFDFD2842F6E020900CFA865 /* DailyNav.xcodeproj */;
-				},
-			);
 			projectRoot = "";
 			targets = (
 				BF584EDF2F4F7E5000800167 /* DailyNav */,
@@ -124,6 +152,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BF584F161234567890AABB16 /* Assets.xcassets in Resources */,
+				BF584F181234567890AABB18 /* privacy.html in Resources */,
+				BF584F1A1234567890AABB1A /* terms.html in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -134,6 +165,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BF584F001234567890AABB00 /* DailyNavApp.swift in Sources */,
+				BF584F021234567890AABB02 /* DailyNavData.swift in Sources */,
+				BF584F041234567890AABB04 /* ContentView.swift in Sources */,
+				BF584F061234567890AABB06 /* Designsystem.swift in Sources */,
+				BF584F081234567890AABB08 /* Settingsview.swift in Sources */,
+				BF584F0A1234567890AABB0A /* HapticManager.swift in Sources */,
+				BF584F0C1234567890AABB0C /* L10n.swift in Sources */,
+				BF584F0E1234567890AABB0E /* NotificationManager.swift in Sources */,
+				BF584F101234567890AABB10 /* OnboardingView.swift in Sources */,
+				BF584F121234567890AABB12 /* PalettePreview.swift in Sources */,
+				BF584F141234567890AABB14 /* Analytics.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -266,9 +308,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = 3374SXVWY2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -286,14 +327,17 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.vince.dailynav;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "DailyNav/DailyNav-Bridging-Header.h";
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_OBJC_BRIDGING_HEADER = "DailyNav-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -302,9 +346,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = 3374SXVWY2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -322,13 +365,17 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.vince.dailynav;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "DailyNav/DailyNav-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "DailyNav-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
