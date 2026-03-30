@@ -159,8 +159,8 @@ enum AnalyticsEvent {
 
     /// User submitted a day review
     case review_submitted(date: Date, rating: Int, gainKeywords: [String],
-                          challengeKeywords: [String], tomorrowKeywords: [String],
-                          hasGainNote: Bool, hasChallengeNote: Bool, hasTomorrowNote: Bool)
+                          challengeKeywords: [String],
+                          hasGainNote: Bool, hasChallengeNote: Bool)
 
     /// User marked a challenge as resolved
     case challenge_resolved(keyword: String, originDate: Date, resolvedDate: Date,
@@ -253,7 +253,6 @@ struct DailyAnalyticsAggregate: Identifiable, Codable {
     var moodRating: Int = 0                 // 0 = not reviewed, 1-5
     var gainKeywords: [String] = []
     var challengeKeywords: [String] = []
-    var tomorrowKeywords: [String] = []
     var hasDetailedReview: Bool = false
 
     // Challenges & insights
@@ -287,7 +286,6 @@ struct DailyAnalyticsAggregate: Identifiable, Codable {
         ]
         if !gainKeywords.isEmpty     { d["gains"]      = gainKeywords }
         if !challengeKeywords.isEmpty { d["challenges"] = challengeKeywords }
-        if !tomorrowKeywords.isEmpty  { d["tomorrow"]   = tomorrowKeywords }
         if !achievementsUnlocked.isEmpty { d["achievements"] = achievementsUnlocked }
         if let mins = activeMinutes  { d["active_minutes"] = mins }
         return d
@@ -540,7 +538,6 @@ final class Analytics {
         // Recent gain/challenge keywords (frequency ranked)
         let allGains      = aggs.flatMap { $0.gainKeywords }
         let allChallenges = aggs.flatMap { $0.challengeKeywords }
-        let allTomorrow   = aggs.flatMap { $0.tomorrowKeywords }
 
         func topKeywords(_ arr: [String], n: Int) -> [String] {
             var freq: [String: Int] = [:]
@@ -572,7 +569,6 @@ final class Analytics {
                 ]
                 if !r.gainKeywords.isEmpty      { d["gains"]      = r.gainKeywords      }
                 if !r.challengeKeywords.isEmpty  { d["challenges"] = r.challengeKeywords }
-                if !r.tomorrowKeywords.isEmpty   { d["tomorrow"]   = r.tomorrowKeywords  }
                 return d
             }
 
@@ -606,7 +602,6 @@ final class Analytics {
             "best_time_block":      bestBlock,
             "top_gain_keywords":    topKeywords(allGains, n: 10),
             "top_challenge_keywords": topKeywords(allChallenges, n: 10),
-            "top_tomorrow_keywords":  topKeywords(allTomorrow, n: 10),
             "goals":                goalsSummary,
             "recent_reviews":       Array(recentReviews),
             "resolved_challenges":  Array(resolvedChallenges),
@@ -698,12 +693,12 @@ final class Analytics {
         case .goal_task_template_add(let goalId, let title):
             p.goalId = goalId.uuidString; p.taskTitle = title
 
-        case .review_submitted(let date, let rating, let gains, let challenges, let tomorrow,
-                                let hasGain, let hasChallenge, let hasTomorrow):
+        case .review_submitted(let date, let rating, let gains, let challenges,
+                                let hasGain, let hasChallenge):
             p.rating = rating
-            p.keywords = jsonString(gains)  // gain keywords as primary keyword field
-            p.boolValue = hasGain || hasChallenge || hasTomorrow
-            p.extraJson = jsonString(["challenges": challenges, "tomorrow": tomorrow,
+            p.keywords = jsonString(gains)
+            p.boolValue = hasGain || hasChallenge
+            p.extraJson = jsonString(["challenges": challenges,
                                        "has_gain": hasGain, "has_challenge": hasChallenge])
             setDate(date)
 
@@ -844,10 +839,8 @@ extension AppStore {
             date: review.date, rating: review.rating,
             gainKeywords: review.gainKeywords,
             challengeKeywords: review.challengeKeywords,
-            tomorrowKeywords: review.tomorrowKeywords,
             hasGainNote:      !review.journalGains.isEmpty,
-            hasChallengeNote: !review.journalChallenges.isEmpty,
-            hasTomorrowNote:  !review.journalTomorrow.isEmpty
+            hasChallengeNote: !review.journalChallenges.isEmpty
         ))
     }
 

@@ -90,7 +90,7 @@ class ProStore: ObservableObject {
     ]
 
     // ── 免费版限制 ────────────────────────────────────────────
-    static let freeGoalLimit  = 1    // 免费版最多 1 个目标
+    static let freeGoalLimit  = 2    // 免费版最多 2 个目标
     static let freeTaskLimit  = 2    // 免费版每个目标最多 2 个任务
     static let freeQuoteLimit = 1    // 免费版每天 1 条语录
 
@@ -299,6 +299,25 @@ struct CodableColor: Codable, Equatable {
     var color: Color { Color(red: r, green: g, blue: b, opacity: a) }
 }
 
+enum TaskPriority: Int, Codable, CaseIterable {
+    case none = 0, low = 1, medium = 2, high = 3
+
+    var label: String {
+        switch self { case .none: "—"; case .low: "Low"; case .medium: "Med"; case .high: "High" }
+    }
+    var icon: String {
+        switch self { case .none: "minus"; case .low: "flag"; case .medium: "flag.fill"; case .high: "flag.fill" }
+    }
+    var color: Color {
+        switch self {
+        case .none:   return Color.clear
+        case .low:    return Color(red:0.230, green:0.660, blue:0.960)  // blue
+        case .medium: return Color(red:0.960, green:0.640, blue:0.320)  // orange
+        case .high:   return Color(red:0.960, green:0.380, blue:0.420)  // red
+        }
+    }
+}
+
 struct GoalTask: Identifiable, Equatable, Codable {
     var id = UUID()
     var title: String
@@ -306,11 +325,35 @@ struct GoalTask: Identifiable, Equatable, Codable {
     var progress: Double = 0.0
     var pinnedDate: Date? = nil       // 非nil时只在该天显示（单日任务）
     var timeSlot: Int? = nil          // 0=上午 1=下午 2=晚上 nil=未分配
+    var priority: TaskPriority = .none
     var isCompleted: Bool { progress >= 1.0 }
 }
 
 enum GoalType: String, CaseIterable, Equatable, Codable {
     case deadline = "deadline"; case longterm = "longterm"
+}
+
+enum GoalRecurrence: String, Codable, CaseIterable {
+    case none = "none"
+    case daily = "daily"
+    case weekdays = "weekdays"     // Mon-Fri
+    case weekends = "weekends"     // Sat-Sun
+}
+
+struct GoalMilestone: Identifiable, Equatable, Codable {
+    var id = UUID()
+    var title: String
+    var targetDate: Date? = nil
+    var isCompleted: Bool = false
+    var completedDate: Date? = nil
+}
+
+struct GoalPhase: Identifiable, Equatable, Codable {
+    var id = UUID()
+    var title: String
+    var startDate: Date
+    var endDate: Date
+    var description: String = ""
 }
 
 struct Goal: Identifiable, Equatable, Codable {
@@ -326,29 +369,60 @@ struct Goal: Identifiable, Equatable, Codable {
     var startDate: Date
     var endDate: Date?
     var tasks: [GoalTask]
-    var showCalendarDot: Bool = true   // 是否在日历中显示光点
+    var showCalendarDot: Bool = true
+    var recurrence: GoalRecurrence = .none
+    var milestones: [GoalMilestone] = []
+    var phases: [GoalPhase] = []
 
     init(id: UUID = UUID(), title: String, category: String, color: Color,
          goalType: GoalType, startDate: Date, endDate: Date? = nil,
-         tasks: [GoalTask] = [], showCalendarDot: Bool = true) {
+         tasks: [GoalTask] = [], showCalendarDot: Bool = true,
+         recurrence: GoalRecurrence = .none,
+         milestones: [GoalMilestone] = [], phases: [GoalPhase] = []) {
         self.id = id; self.title = title; self.category = category
         self._color = CodableColor(color)
         self.goalType = goalType; self.startDate = startDate
         self.endDate = endDate; self.tasks = tasks
         self.showCalendarDot = showCalendarDot
+        self.recurrence = recurrence
+        self.milestones = milestones; self.phases = phases
     }
 
     enum CodingKeys: String, CodingKey {
         case id, title, category, _color = "color", goalType, startDate, endDate, tasks, showCalendarDot
+        case recurrence, milestones, phases
     }
 
     func covers(_ date: Date) -> Bool {
         let cal = Calendar.current
         let d = cal.startOfDay(for: date), s = cal.startOfDay(for: startDate)
         guard d >= s else { return false }
-        if goalType == .longterm { return true }
-        if let e = endDate { return d <= cal.startOfDay(for: e) }
-        return false
+        // Check date range first
+        let inRange: Bool
+        if goalType == .longterm { inRange = true }
+        else if let e = endDate { inRange = d <= cal.startOfDay(for: e) }
+        else { inRange = false }
+        guard inRange else { return false }
+        // Apply recurrence filter
+        switch recurrence {
+        case .none, .daily: return true
+        case .weekdays:
+            let wd = cal.component(.weekday, from: date)
+            return wd >= 2 && wd <= 6  // Mon=2..Fri=6
+        case .weekends:
+            let wd = cal.component(.weekday, from: date)
+            return wd == 1 || wd == 7  // Sun=1, Sat=7
+        }
+    }
+
+    /// Current phase based on today's date
+    var currentPhase: GoalPhase? {
+        let today = Calendar.current.startOfDay(for: Date())
+        return phases.first { p in
+            let s = Calendar.current.startOfDay(for: p.startDate)
+            let e = Calendar.current.startOfDay(for: p.endDate)
+            return today >= s && today <= e
+        }
     }
 
     var progress: Double {
@@ -390,16 +464,14 @@ struct PeriodSummary: Identifiable, Codable {
     var mood: Int = 0            // 1-5 情绪评分
     var gains: String = ""       // 收获详细
     var challenges: String = ""  // 困难详细
-    var outlook: String = ""     // 展望/下期计划
     // 关键词（3-5词）
     var gainKeywords: [String] = []
     var challengeKeywords: [String] = []
-    var nextKeywords: [String] = []     // 下期计划关键词
     // 困难跟踪：记录下层（日/周）哪些困难关键词已被标为已解决
     var resolvedChallenges: Set<String> = []
     var text: String = ""        // 旧版自由文本（兼容）
     var submittedAt: Date = Date()
-    var hasContent: Bool { mood > 0 || !gains.isEmpty || !challenges.isEmpty || !outlook.isEmpty || !gainKeywords.isEmpty }
+    var hasContent: Bool { mood > 0 || !gains.isEmpty || !challenges.isEmpty || !gainKeywords.isEmpty }
     var avgCompletion: Double = 0
 }
 
@@ -427,11 +499,9 @@ struct DayReview: Identifiable, Equatable, Codable {
     var feedbackNote: String = ""
     var journalGains: String = ""       // 收获详细文本
     var journalChallenges: String = ""  // 困难详细文本
-    var journalTomorrow: String = ""    // 明日计划详细文本
     // 关键词（3-5词，用于智能总结 + 上层汇总）
     var gainKeywords: [String] = []
     var challengeKeywords: [String] = []
-    var tomorrowKeywords: [String] = []
     var isSubmitted: Bool = false
 }
 
@@ -823,29 +893,23 @@ class AppStore: ObservableObject {
     struct AIInsightData: Codable {
         let exportedAt: Date
         let userAge: Int?
-        // 每日关键词记录
         struct DailyEntry: Codable {
-            let date: String  // yyyy-MM-dd
+            let date: String
             let mood: Int
             let gainKeywords: [String]
             let challengeKeywords: [String]
-            let planKeywords: [String]
             let gainDetail: String
             let challengeDetail: String
-            let planDetail: String
             let completionRate: Double
         }
-        // 周期总结关键词记录
         struct PeriodEntry: Codable {
-            let periodType: Int  // 0=周 1=月 2=年
+            let periodType: Int
             let periodLabel: String
             let mood: Int
             let gainKeywords: [String]
             let challengeKeywords: [String]
-            let planKeywords: [String]
             let gainDetail: String
             let challengeDetail: String
-            let planDetail: String
             let resolvedChallenges: [String]
             let avgCompletion: Double
         }
@@ -863,10 +927,8 @@ class AppStore: ObservableObject {
                 mood: r.rating,
                 gainKeywords: r.gainKeywords,
                 challengeKeywords: r.challengeKeywords,
-                planKeywords: r.tomorrowKeywords,
                 gainDetail: r.journalGains,
                 challengeDetail: r.journalChallenges,
-                planDetail: r.journalTomorrow,
                 completionRate: completionRate(for:r.date)
             )
         }
@@ -877,10 +939,8 @@ class AppStore: ObservableObject {
                 mood: p.mood,
                 gainKeywords: p.gainKeywords,
                 challengeKeywords: p.challengeKeywords,
-                planKeywords: p.nextKeywords,
                 gainDetail: p.gains,
                 challengeDetail: p.challenges,
-                planDetail: p.outlook,
                 resolvedChallenges: Array(p.resolvedChallenges),
                 avgCompletion: p.avgCompletion
             )
@@ -1427,14 +1487,11 @@ class AppStore: ObservableObject {
             if updated.gainKeywords.isEmpty && !existing.gainKeywords.isEmpty {
                 updated.gainKeywords = existing.gainKeywords
             }
-            if updated.tomorrowKeywords.isEmpty && !existing.tomorrowKeywords.isEmpty {
-                updated.tomorrowKeywords = existing.tomorrowKeywords
-            }
             dayReviews[i] = updated
         } else {
             // 新的一天，只在有实质内容时才存（避免空记录污染历史）
             if r.rating > 0 || !r.feedbackNote.isEmpty || !r.journalGains.isEmpty
-               || !r.gainKeywords.isEmpty || !r.challengeKeywords.isEmpty || !r.tomorrowKeywords.isEmpty {
+               || !r.gainKeywords.isEmpty || !r.challengeKeywords.isEmpty {
                 dayReviews.append(r)
             }
         }
@@ -1453,7 +1510,6 @@ class AppStore: ObservableObject {
         if let i = dayReviews.firstIndex(where:{ cal.isDate($0.date,inSameDayAs:r.date) }) {
             dayReviews[i].challengeKeywords = r.challengeKeywords
             dayReviews[i].gainKeywords      = r.gainKeywords
-            dayReviews[i].tomorrowKeywords  = r.tomorrowKeywords
         } else {
             dayReviews.append(r)
         }
@@ -1462,9 +1518,6 @@ class AppStore: ObservableObject {
     // ── 任意日期的收获/计划读写（用于历史编辑）──────────────
     func gainKeywords(for date: Date) -> [String] {
         review(for: date)?.gainKeywords ?? []
-    }
-    func planKeywords(for date: Date) -> [String] {
-        review(for: date)?.tomorrowKeywords ?? []
     }
     func setGainKeyword(_ kw: String, for date: Date, add: Bool) {
         let cal = Calendar.current
@@ -1482,37 +1535,12 @@ class AppStore: ObservableObject {
             dayReviews.append(r)
         }
     }
-    func setPlanKeyword(_ kw: String, for date: Date, add: Bool) {
-        let cal = Calendar.current
-        var r: DayReview
-        if let existing = review(for: date) { r = existing }
-        else { r = DayReview(date: date) }
-        if add {
-            if !r.tomorrowKeywords.contains(kw) { r.tomorrowKeywords.append(kw) }
-        } else {
-            r.tomorrowKeywords.removeAll { $0 == kw }
-        }
-        if let i = dayReviews.firstIndex(where:{ cal.isDate($0.date,inSameDayAs:date) }) {
-            dayReviews[i].tomorrowKeywords = r.tomorrowKeywords
-        } else {
-            dayReviews.append(r)
-        }
-    }
     func replaceGainKeywords(_ kws: [String], for date: Date) {
         let cal = Calendar.current
         if let i = dayReviews.firstIndex(where:{ cal.isDate($0.date,inSameDayAs:date) }) {
             dayReviews[i].gainKeywords = kws
         } else {
             var r = DayReview(date: date); r.gainKeywords = kws
-            dayReviews.append(r)
-        }
-    }
-    func replacePlanKeywords(_ kws: [String], for date: Date) {
-        let cal = Calendar.current
-        if let i = dayReviews.firstIndex(where:{ cal.isDate($0.date,inSameDayAs:date) }) {
-            dayReviews[i].tomorrowKeywords = kws
-        } else {
-            var r = DayReview(date: date); r.tomorrowKeywords = kws
             dayReviews.append(r)
         }
     }
@@ -1555,33 +1583,6 @@ class AppStore: ObservableObject {
         return result
     }
 
-    // ── 计划聚合：日记 + 周/月/年总结（统一来源）────────────
-    func allPlanKeywords(for dates: [Date]) -> [String] {
-        let cal = Calendar.current
-        var seen = Set<String>(); var result: [String] = []
-        func add(_ kw: String) { if seen.insert(kw).inserted { result.append(kw) } }
-        // 1. DayReview
-        dates.compactMap { review(for:$0) }.flatMap { $0.tomorrowKeywords }.forEach(add)
-        // 2. PeriodSummary
-        let years  = Set(dates.map { cal.component(.year, from:$0) })
-        let months = Set(dates.map { "\(cal.component(.year,from:$0))-\(cal.component(.month,from:$0))" })
-        let weeks  = Set(dates.map { "\(cal.component(.yearForWeekOfYear,from:$0))-W\(cal.component(.weekOfYear,from:$0))" })
-        for ps in periodSummaries {
-            let psYear  = cal.component(.year, from:ps.startDate)
-            let psMonth = cal.component(.month, from:ps.startDate)
-            let psWOY   = cal.component(.weekOfYear, from:ps.startDate)
-            let psWY    = cal.component(.yearForWeekOfYear, from:ps.startDate)
-            let relevant: Bool
-            switch ps.periodType {
-            case 2: relevant = years.contains(psYear)
-            case 1: relevant = months.contains("\(psYear)-\(psMonth)")
-            case 0: relevant = weeks.contains("\(psWY)-W\(psWOY)")
-            default: relevant = false
-            }
-            if relevant { ps.nextKeywords.forEach(add) }
-        }
-        return result
-    }
 
     // ── 所有有收获或计划记录的日期（日记 + PeriodSummary）──
     var datesWithGains: [Date] {
@@ -1590,14 +1591,6 @@ class AppStore: ObservableObject {
                   .forEach { set.insert(Calendar.current.startOfDay(for:$0.date)) }
         // PeriodSummary 有收获的，用其 startDate
         periodSummaries.filter { !$0.gainKeywords.isEmpty }
-                       .forEach { set.insert(Calendar.current.startOfDay(for:$0.startDate)) }
-        return set.sorted(by:>)
-    }
-    var datesWithPlans: [Date] {
-        var set = Set<Date>()
-        dayReviews.filter { !$0.tomorrowKeywords.isEmpty }
-                  .forEach { set.insert(Calendar.current.startOfDay(for:$0.date)) }
-        periodSummaries.filter { !$0.nextKeywords.isEmpty }
                        .forEach { set.insert(Calendar.current.startOfDay(for:$0.startDate)) }
         return set.sorted(by:>)
     }
@@ -1622,32 +1615,13 @@ class AppStore: ObservableObject {
         updateReviewKeywords(r)
     }
 
-    // ── 计划关键词（实时写 store）────────────────────────────
-    func addTodayPlanKeyword(_ kw: String) {
-        let d = today
-        var r = review(for:d) ?? DayReview(date:d)
-        guard !r.tomorrowKeywords.contains(kw) else { return }
-        r.tomorrowKeywords.append(kw)
-        updateReviewKeywords(r)
-    }
-    func removeTodayPlanKeyword(_ kw: String) {
-        guard var r = review(for:today) else { return }
-        r.tomorrowKeywords.removeAll { $0 == kw }
-        updateReviewKeywords(r)
-    }
-    func renameTodayPlanKeyword(from old: String, to new: String) {
-        guard var r = review(for:today) else { return }
-        if let i = r.tomorrowKeywords.firstIndex(of:old) { r.tomorrowKeywords[i] = new }
-        updateReviewKeywords(r)
-    }
 
     var journalEntries: [DayReview] {
-        // 收录：已提交 + 有实质内容（情绪/关键词/详细文本 任一）
         dayReviews.filter {
             $0.isSubmitted && (
                 $0.rating > 0 ||
-                !$0.gainKeywords.isEmpty || !$0.challengeKeywords.isEmpty || !$0.tomorrowKeywords.isEmpty ||
-                !$0.journalGains.isEmpty || !$0.journalChallenges.isEmpty || !$0.journalTomorrow.isEmpty
+                !$0.gainKeywords.isEmpty || !$0.challengeKeywords.isEmpty ||
+                !$0.journalGains.isEmpty || !$0.journalChallenges.isEmpty
             )
         }.sorted { $0.date > $1.date }
     }
@@ -1669,17 +1643,15 @@ class AppStore: ObservableObject {
     }
 
     // 某时间段所有收获/困难的文本合集（用于智能总结）
-    func journalText(for dates: [Date]) -> (gains:[String], challenges:[String], tomorrows:[String]) {
+    func journalText(for dates: [Date]) -> (gains:[String], challenges:[String]) {
         let reviews = dates.compactMap { review(for:$0) }.filter(\.isSubmitted)
         return (
             reviews.map(\.journalGains).filter { !$0.isEmpty },
-            reviews.map(\.journalChallenges).filter { !$0.isEmpty },
-            reviews.map(\.journalTomorrow).filter { !$0.isEmpty }
+            reviews.map(\.journalChallenges).filter { !$0.isEmpty }
         )
     }
 
-    // 某时间段所有收获/困难/明日关键词汇总（按首次出现顺序，去重）
-    func aggregateKeywords(for dates: [Date]) -> (gains:[String], challenges:[String], nexts:[String]) {
+    func aggregateKeywords(for dates: [Date]) -> (gains:[String], challenges:[String]) {
         let reviews = dates.compactMap { review(for:$0) }
         func ordered(_ arr: [[String]]) -> [String] {
             var seen = Set<String>(); var result: [String] = []
@@ -1688,19 +1660,16 @@ class AppStore: ObservableObject {
         }
         return (
             ordered(reviews.map(\.gainKeywords)),
-            ordered(reviews.map(\.challengeKeywords)),
-            ordered(reviews.map(\.tomorrowKeywords))
+            ordered(reviews.map(\.challengeKeywords))
         )
     }
 
     // 某周期总结汇总下层关键词（周取日，月取周，年取月）
-    func aggregateKeywordsFromPeriods(type: Int, dates: [Date]) -> (gains:[String], challenges:[String], nexts:[String]) {
+    func aggregateKeywordsFromPeriods(type: Int, dates: [Date]) -> (gains:[String], challenges:[String]) {
         let cal = Calendar.current
         if type == 0 {
-            // 周：从日记关键词聚合
             return aggregateKeywords(for: dates)
         } else if type == 1 {
-            // 月：从本月各周总结的关键词聚合
             let weeks = Set(dates.map { cal.component(.weekOfYear, from:$0) })
             let year = cal.component(.year, from: dates.first ?? Date())
             let weekSummaries = weeks.compactMap { w -> PeriodSummary? in
@@ -1713,11 +1682,9 @@ class AppStore: ObservableObject {
             }
             return (
                 top(weekSummaries.map(\.gainKeywords)),
-                top(weekSummaries.map(\.challengeKeywords)),
-                top(weekSummaries.map(\.nextKeywords))
+                top(weekSummaries.map(\.challengeKeywords))
             )
         } else {
-            // 年：从本年各月总结的关键词聚合
             let months = Set(dates.map { cal.component(.month, from:$0) })
             let year = cal.component(.year, from: dates.first ?? Date())
             let monthSummaries = months.compactMap { m -> PeriodSummary? in
@@ -1730,8 +1697,7 @@ class AppStore: ObservableObject {
             }
             return (
                 top(monthSummaries.map(\.gainKeywords)),
-                top(monthSummaries.map(\.challengeKeywords)),
-                top(monthSummaries.map(\.nextKeywords))
+                top(monthSummaries.map(\.challengeKeywords))
             )
         }
     }
@@ -1743,26 +1709,19 @@ class AppStore: ObservableObject {
         let activeDays = dates.filter { completionRate(for:$0) > 0 }.count
         let moodEmoji = mood >= 4.5 ? "✨" : mood >= 3.5 ? "🤍" : mood >= 2.5 ? "🙂" : mood >= 1.5 ? "😶" : mood > 0 ? "😞" : ""
 
-        // 优先取关键词（已有总结则从总结取，否则从日记聚合）
-        let kw: (gains:[String], challenges:[String], nexts:[String])
-        // 总是聚合所有层级的关键词（日记 + PeriodSummary）
         let aggGains  = allGainKeywords(for:dates)
-        let aggPlans  = allPlanKeywords(for:dates)
         let baseChallenges: [String]
         if let existing = periodSummary(type:type, label:label) {
             baseChallenges = existing.challengeKeywords
         } else {
             baseChallenges = aggregateKeywordsFromPeriods(type:type, dates:dates).challenges
         }
-        kw = (aggGains, baseChallenges, aggPlans)
 
-        // ── Use SuggestionProvider for language-correct output ──
         var parts: [String] = []
         parts.append(SuggestionProvider.summaryCompletion(
             Int(avg*100), activeDays:activeDays, mood:mood, moodEmoji:moodEmoji, l:language))
-        if !kw.gains.isEmpty      { parts.append(SuggestionProvider.summaryWins(kw.gains, l:language)) }
-        if !kw.challenges.isEmpty { parts.append(SuggestionProvider.summaryChallenges(kw.challenges, l:language)) }
-        if !kw.nexts.isEmpty      { parts.append(SuggestionProvider.summaryPlans(kw.nexts, l:language)) }
+        if !aggGains.isEmpty       { parts.append(SuggestionProvider.summaryWins(aggGains, l:language)) }
+        if !baseChallenges.isEmpty { parts.append(SuggestionProvider.summaryChallenges(baseChallenges, l:language)) }
         return parts.joined(separator: "\n")
     }
 
@@ -2744,14 +2703,14 @@ class AppStore: ObservableObject {
     func allGrowthYears() -> [GrowthYearEntry] {
         let cal = Calendar.current
         var yearSet = Set<Int>()
-        for r in dayReviews where r.isSubmitted || !r.gainKeywords.isEmpty || !r.tomorrowKeywords.isEmpty {
+        for r in dayReviews where r.isSubmitted || !r.gainKeywords.isEmpty {
             yearSet.insert(cal.component(.year, from:r.date))
         }
         for e in dailyChallenges where e.resolvedOnDate != nil {
             yearSet.insert(cal.component(.year, from:e.date))
         }
         // 包含来自 PeriodSummary 的年份
-        for ps in periodSummaries where !ps.gainKeywords.isEmpty || !ps.nextKeywords.isEmpty {
+        for ps in periodSummaries where !ps.gainKeywords.isEmpty {
             yearSet.insert(cal.component(.year, from:ps.startDate))
         }
         return yearSet.sorted(by:>).map { year in

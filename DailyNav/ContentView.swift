@@ -142,6 +142,16 @@ struct ContentView: View {
 // MARK: - 共用
 // ============================================================
 
+// Global keyboard dismiss
+extension View {
+    func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+    func hideKeyboardOnTap() -> some View {
+        self.onTapGesture { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
+    }
+}
+
 struct SectionLabel: View {
     let text:String;let icon:String
     init(_ t:String,icon:String){text=t;self.icon=icon}
@@ -1927,6 +1937,15 @@ struct GoalEditSheet: View {
     // Colors from AppTheme.palette (10 colors, accessed directly)
 
     @State private var showCalendarDot: Bool = true
+    @State private var recurrence: GoalRecurrence = .none
+    @State private var milestones: [GoalMilestone] = []
+    @State private var phases: [GoalPhase] = []
+    @State private var showAddMilestone = false
+    @State private var newMilestoneTitle = ""
+    @State private var showAddPhase = false
+    @State private var newPhaseTitle = ""
+    @State private var newPhaseStart = Date()
+    @State private var newPhaseEnd = Date()
 
     init(goal:Goal?, defaultDate: Date = Date(), onSave:@escaping(Goal)->Void){
         self.goal=goal;self.onSave=onSave
@@ -1938,6 +1957,9 @@ struct GoalEditSheet: View {
         _endDate=State(initialValue:goal?.endDate ?? Calendar.current.date(byAdding:.month,value:3,to:defaultDate)!)
         _tasks=State(initialValue:goal?.tasks ?? [])
         _showCalendarDot=State(initialValue:goal?.showCalendarDot ?? true)
+        _recurrence=State(initialValue:goal?.recurrence ?? .none)
+        _milestones=State(initialValue:goal?.milestones ?? [])
+        _phases=State(initialValue:goal?.phases ?? [])
     }
 
     var body: some View {
@@ -2039,6 +2061,31 @@ struct GoalEditSheet: View {
                             }
                         }
                     }
+                    // 重复频率
+                    VStack(alignment:.leading,spacing:7){
+                        SectionLabel(store.t(zh:"重复",en:"Repeat",ja:"繰り返し",ko:"반복",es:"Repetir"),icon:"arrow.2.squarepath")
+                        ScrollView(.horizontal, showsIndicators:false) {
+                            HStack(spacing:7){
+                                ForEach(GoalRecurrence.allCases, id:\.self) { rec in
+                                    let sel = recurrence == rec
+                                    let label: String = {
+                                        switch rec {
+                                        case .none:     return store.t(zh:"不重复",en:"None",ja:"なし",ko:"없음",es:"Ninguno")
+                                        case .daily:    return store.t(zh:"每天",en:"Daily",ja:"毎日",ko:"매일",es:"Diario")
+                                        case .weekdays: return store.t(zh:"工作日",en:"Weekdays",ja:"平日",ko:"평일",es:"Laborales")
+                                        case .weekends: return store.t(zh:"周末",en:"Weekends",ja:"週末",ko:"주말",es:"Fines de semana")
+                                        }
+                                    }()
+                                    Button(action:{ recurrence = rec }) {
+                                        Text(label).font(.subheadline).padding(.horizontal,13).padding(.vertical,7)
+                                            .background(sel ? selectedColor.opacity(0.2) : AppTheme.bg2)
+                                            .foregroundColor(sel ? selectedColor : AppTheme.textSecondary).cornerRadius(20)
+                                            .overlay(RoundedRectangle(cornerRadius:20).stroke(sel ? selectedColor.opacity(0.4) : AppTheme.border0, lineWidth:1))
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // 开始日期（新建时可选，编辑时锁定）
                     VStack(alignment:.leading,spacing:7){
                         SectionLabel(store.t(key: L10n.startDateLabel),icon:"play.circle")
@@ -2083,6 +2130,86 @@ struct GoalEditSheet: View {
                         if tasks.isEmpty{Text(store.t(key: L10n.noTasksYet)).font(.system(size: DSTSize.caption, weight: .regular, design:.rounded)).misty(.tertiary).frame(maxWidth:.infinity).padding(.vertical,12)}
                         else{ ForEach(tasks.indices,id:\.self){ i in TaskEditRow(task:$tasks[i],color:selectedColor,onDelete:{tasks.remove(at:i)},store:store) } }
                     }
+                    // 里程碑（长期目标可用）
+                    if goalType == .longterm {
+                        VStack(alignment:.leading,spacing:8){
+                            HStack{
+                                SectionLabel(store.t(zh:"里程碑",en:"Milestones",ja:"マイルストーン",ko:"마일스톤",es:"Hitos"),icon:"flag.checkered");Spacer()
+                                Button(action:{showAddMilestone=true}){
+                                    HStack(spacing:4){Image(systemName:"plus");Text(store.t(key: L10n.addLabel))}.font(.caption).padding(.horizontal,11).padding(.vertical,5).background(AppTheme.bg3).cornerRadius(8).foregroundColor(AppTheme.textSecondary).overlay(RoundedRectangle(cornerRadius:8).stroke(AppTheme.border1,lineWidth:1))
+                                }
+                            }
+                            if milestones.isEmpty {
+                                Text(store.t(zh:"设定里程碑来追踪长期目标进度",en:"Set milestones to track long-term progress",ja:"マイルストーンを設定して長期目標の進捗を追跡",ko:"마일스톤을 설정하여 장기 목표 진행 상황 추적",es:"Establece hitos para seguir el progreso a largo plazo"))
+                                    .font(.system(size:DSTSize.micro,weight:.regular,design:.rounded)).misty(.tertiary)
+                                    .frame(maxWidth:.infinity).padding(.vertical,8)
+                            } else {
+                                ForEach(milestones.indices, id:\.self) { i in
+                                    HStack(spacing:10) {
+                                        Button(action:{
+                                            milestones[i].isCompleted.toggle()
+                                            if milestones[i].isCompleted { milestones[i].completedDate = Date() }
+                                            else { milestones[i].completedDate = nil }
+                                        }) {
+                                            Image(systemName: milestones[i].isCompleted ? "checkmark.circle.fill" : "circle")
+                                                .font(.system(size:16)).foregroundColor(milestones[i].isCompleted ? selectedColor : AppTheme.textTertiary)
+                                        }
+                                        VStack(alignment:.leading, spacing:2) {
+                                            Text(milestones[i].title).font(.system(size:DSTSize.body,weight:.regular,design:.rounded))
+                                                .foregroundColor(milestones[i].isCompleted ? AppTheme.textTertiary : AppTheme.textPrimary)
+                                                .strikethrough(milestones[i].isCompleted, color:AppTheme.textTertiary)
+                                            if let td = milestones[i].targetDate {
+                                                Text(formatDate(td, format:store.language == .chinese ? "M月d日" : "MMM d", lang:store.language))
+                                                    .font(.system(size:DSTSize.micro,weight:.regular,design:.rounded)).misty(.tertiary)
+                                            }
+                                        }
+                                        Spacer()
+                                        Button(action:{ milestones.remove(at:i) }) {
+                                            Image(systemName:"xmark.circle.fill").foregroundColor(AppTheme.textTertiary.opacity(0.5)).font(.caption)
+                                        }
+                                    }
+                                    .padding(10).background(AppTheme.bg2).cornerRadius(10)
+                                    .overlay(RoundedRectangle(cornerRadius:10).stroke(milestones[i].isCompleted ? selectedColor.opacity(0.3) : AppTheme.border0, lineWidth:1))
+                                }
+                            }
+                        }
+
+                        // 阶段
+                        VStack(alignment:.leading,spacing:8){
+                            HStack{
+                                SectionLabel(store.t(zh:"阶段",en:"Phases",ja:"フェーズ",ko:"단계",es:"Fases"),icon:"chart.bar.doc.horizontal");Spacer()
+                                Button(action:{
+                                    newPhaseStart = startDate
+                                    newPhaseEnd = Calendar.current.date(byAdding:.weekOfYear,value:2,to:startDate) ?? startDate
+                                    showAddPhase = true
+                                }){
+                                    HStack(spacing:4){Image(systemName:"plus");Text(store.t(key: L10n.addLabel))}.font(.caption).padding(.horizontal,11).padding(.vertical,5).background(AppTheme.bg3).cornerRadius(8).foregroundColor(AppTheme.textSecondary).overlay(RoundedRectangle(cornerRadius:8).stroke(AppTheme.border1,lineWidth:1))
+                                }
+                            }
+                            if phases.isEmpty {
+                                Text(store.t(zh:"把目标拆分成多个阶段，一步一步完成",en:"Break your goal into phases to complete step by step",ja:"目標をフェーズに分けてステップごとに達成",ko:"목표를 단계별로 나누어 단계별로 완성",es:"Divide tu objetivo en fases para completar paso a paso"))
+                                    .font(.system(size:DSTSize.micro,weight:.regular,design:.rounded)).misty(.tertiary)
+                                    .frame(maxWidth:.infinity).padding(.vertical,8)
+                            } else {
+                                ForEach(phases.indices, id:\.self) { i in
+                                    HStack(spacing:10) {
+                                        RoundedRectangle(cornerRadius:2).fill(selectedColor.opacity(0.6)).frame(width:3,height:28)
+                                        VStack(alignment:.leading,spacing:2) {
+                                            Text(phases[i].title).font(.system(size:DSTSize.body,weight:.medium,design:.rounded)).misty(.primary)
+                                            Text("\(formatDate(phases[i].startDate,format:"M/d",lang:store.language)) → \(formatDate(phases[i].endDate,format:"M/d",lang:store.language))")
+                                                .font(.system(size:DSTSize.micro,weight:.regular,design:.rounded)).misty(.tertiary)
+                                        }
+                                        Spacer()
+                                        Button(action:{ phases.remove(at:i) }) {
+                                            Image(systemName:"xmark.circle.fill").foregroundColor(AppTheme.textTertiary.opacity(0.5)).font(.caption)
+                                        }
+                                    }
+                                    .padding(10).background(AppTheme.bg2).cornerRadius(10)
+                                    .overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border0,lineWidth:1))
+                                }
+                            }
+                        }
+                    }
                     // 日历光点开关
                     HStack(spacing:12) {
                         VStack(alignment:.leading, spacing:3) {
@@ -2116,6 +2243,10 @@ struct GoalEditSheet: View {
             .navigationTitle(store.t(key: goal==nil ? L10n.addGoalLabel : L10n.editGoalLabel)).navigationBarTitleDisplayMode(.inline)
             .toolbar{
                 ToolbarItem(placement:.navigationBarLeading){Button(store.t(key: L10n.cancel)){dismiss()}.foregroundColor(AppTheme.textSecondary)}
+                ToolbarItemGroup(placement:.keyboard) {
+                    Spacer()
+                    Button("Done") { dismissKeyboard() }.foregroundColor(AppTheme.accent)
+                }
                 ToolbarItem(placement:.navigationBarTrailing){
                     Button(store.t(key: L10n.save)){
                         guard !title.isEmpty else { return }
@@ -2127,7 +2258,10 @@ struct GoalEditSheet: View {
                             startDate: finalStart,
                             endDate: goalType == .deadline ? Calendar.current.startOfDay(for:endDate) : nil,
                             tasks: tasks,
-                            showCalendarDot: showCalendarDot
+                            showCalendarDot: showCalendarDot,
+                            recurrence: recurrence,
+                            milestones: milestones,
+                            phases: phases
                         )
                         onSave(newGoal)
                         dismiss()
@@ -2135,6 +2269,41 @@ struct GoalEditSheet: View {
                 }
             }
             .sheet(isPresented:$showingAddTask){TaskAddSheet(color:selectedColor){tasks.append($0)}}
+            .alert(store.t(zh:"添加里程碑",en:"Add Milestone",ja:"マイルストーン追加",ko:"마일스톤 추가",es:"Añadir hito"), isPresented:$showAddMilestone) {
+                TextField(store.t(zh:"里程碑名称",en:"Milestone name",ja:"マイルストーン名",ko:"마일스톤 이름",es:"Nombre del hito"), text:$newMilestoneTitle)
+                Button(store.t(key: L10n.addLabel)) {
+                    if !newMilestoneTitle.isEmpty {
+                        milestones.append(GoalMilestone(title:newMilestoneTitle))
+                        newMilestoneTitle = ""
+                    }
+                }
+                Button(store.t(key: L10n.cancel), role:.cancel) { newMilestoneTitle = "" }
+            }
+            .sheet(isPresented:$showAddPhase) {
+                NavigationView {
+                    VStack(alignment:.leading, spacing:16) {
+                        TextField(store.t(zh:"阶段名称",en:"Phase name",ja:"フェーズ名",ko:"단계 이름",es:"Nombre de la fase"), text:$newPhaseTitle)
+                            .textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(12).foregroundColor(AppTheme.textPrimary)
+                        DatePicker(store.t(zh:"开始",en:"Start",ja:"開始",ko:"시작",es:"Inicio"), selection:$newPhaseStart, displayedComponents:.date).colorScheme(.dark)
+                        DatePicker(store.t(zh:"结束",en:"End",ja:"終了",ko:"종료",es:"Fin"), selection:$newPhaseEnd, in:newPhaseStart..., displayedComponents:.date).colorScheme(.dark)
+                        Spacer()
+                    }.padding(20).background(AppTheme.bg0.ignoresSafeArea())
+                    .navigationTitle(store.t(zh:"添加阶段",en:"Add Phase",ja:"フェーズ追加",ko:"단계 추가",es:"Añadir fase"))
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement:.cancellationAction){Button(store.t(key:L10n.cancel)){showAddPhase=false;newPhaseTitle=""}}
+                        ToolbarItem(placement:.confirmationAction){
+                            Button(store.t(key:L10n.addLabel)){
+                                if !newPhaseTitle.isEmpty {
+                                    phases.append(GoalPhase(title:newPhaseTitle,startDate:newPhaseStart,endDate:newPhaseEnd))
+                                    newPhaseTitle=""
+                                }
+                                showAddPhase=false
+                            }.disabled(newPhaseTitle.isEmpty)
+                        }
+                    }
+                }.presentationDetents([.medium])
+            }
             .animation(.spring(response:0.3),value:goalType)
             .alert(store.t(key: L10n.deleteGoalTitle),isPresented:$showDeleteConfirm){
                 Button(store.t(key: L10n.delete),role:.destructive){
@@ -2163,7 +2332,14 @@ struct TaskEditRow: View {
         HStack(spacing:11){
             Circle().fill(color.opacity(0.6)).frame(width:7,height:7)
             VStack(alignment:.leading,spacing:2){
-                Text(task.title).font(.system(size: DSTSize.body, weight: .regular, design:.rounded)).misty(.primary)
+                HStack(spacing:5) {
+                    Text(task.title).font(.system(size: DSTSize.body, weight: .regular, design:.rounded)).misty(.primary)
+                    if task.priority != .none {
+                        Image(systemName:task.priority.icon)
+                            .font(.system(size:9,weight:.semibold))
+                            .foregroundColor(task.priority.color)
+                    }
+                }
                 if let m=task.estimatedMinutes{Text(L10n.minuteWithNumber(m, store.language)).font(.system(size: DSTSize.micro, weight: .regular, design:.rounded)).misty(.tertiary)}
             }
             Spacer()
@@ -2177,6 +2353,7 @@ struct TaskAddSheet: View {
     @EnvironmentObject var store:AppStore
     let color:Color;let onAdd:(GoalTask)->Void
     @State private var title="";@State private var useTime=false;@State private var mins=30;@State private var maxMins=120;@State private var maxInput="120"
+    @State private var priority: TaskPriority = .none
     @FocusState private var titleFocused: Bool
     var options:[Int]{stride(from:5,through:max(maxMins,5),by:5).map{$0}}
     var body: some View {
@@ -2199,6 +2376,33 @@ struct TaskAddSheet: View {
                             Picker("",selection:$mins){ForEach(options,id:\.self){Text(L10n.minuteWithNumber($0, store.language)).tag($0)}}.pickerStyle(.wheel).frame(height:120).clipped().background(AppTheme.bg2).cornerRadius(12)
                         }.padding(13).background(AppTheme.bg2).cornerRadius(12).overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1)).transition(.move(edge:.top).combined(with:.opacity))
                     }
+                    // Priority picker
+                    VStack(alignment:.leading, spacing:7) {
+                        SectionLabel(store.t(zh:"优先级",en:"Priority",ja:"優先度",ko:"우선순위",es:"Prioridad"), icon:"flag")
+                        HStack(spacing:8) {
+                            ForEach(TaskPriority.allCases, id:\.rawValue) { p in
+                                let sel = priority == p
+                                Button(action:{ withAnimation(.spring(response:0.2)) { priority = p } }) {
+                                    HStack(spacing:4) {
+                                        if p != .none {
+                                            Image(systemName:p.icon).font(.system(size:11)).foregroundColor(sel ? p.color : AppTheme.textTertiary)
+                                        }
+                                        Text(store.t(zh: p == .none ? "无" : p == .low ? "低" : p == .medium ? "中" : "高",
+                                                     en: p.label,
+                                                     ja: p == .none ? "なし" : p == .low ? "低" : p == .medium ? "中" : "高",
+                                                     ko: p == .none ? "없음" : p == .low ? "낮음" : p == .medium ? "중간" : "높음",
+                                                     es: p == .none ? "Sin" : p == .low ? "Baja" : p == .medium ? "Media" : "Alta"))
+                                            .font(.system(size:DSTSize.caption, weight:.medium, design:.rounded))
+                                    }
+                                    .padding(.horizontal,12).padding(.vertical,8)
+                                    .background(sel ? (p == .none ? AppTheme.bg3 : p.color.opacity(0.15)) : AppTheme.bg2)
+                                    .foregroundColor(sel ? (p == .none ? AppTheme.textPrimary : p.color) : AppTheme.textSecondary)
+                                    .cornerRadius(10)
+                                    .overlay(RoundedRectangle(cornerRadius:10).stroke(sel ? (p == .none ? AppTheme.border1 : p.color.opacity(0.4)) : AppTheme.border0, lineWidth:1))
+                                }
+                            }
+                        }
+                    }
                     Spacer(minLength:20)
                 }.padding(20)
             }
@@ -2208,7 +2412,11 @@ struct TaskAddSheet: View {
             .navigationTitle(store.t(key: L10n.addTask)).navigationBarTitleDisplayMode(.inline)
             .toolbar{
                 ToolbarItem(placement:.navigationBarLeading){Button(store.t(key: L10n.cancel)){dismiss()}.foregroundColor(AppTheme.textSecondary)}
-                ToolbarItem(placement:.navigationBarTrailing){Button(store.t(key: L10n.addLabel)){guard !title.isEmpty else{return};onAdd(GoalTask(title:title,estimatedMinutes:useTime ? mins:nil));dismiss()}.foregroundColor(color).fontWeight(.medium).disabled(title.isEmpty)}
+                ToolbarItem(placement:.navigationBarTrailing){Button(store.t(key: L10n.addLabel)){guard !title.isEmpty else{return};onAdd(GoalTask(title:title,estimatedMinutes:useTime ? mins:nil,priority:priority));dismiss()}.foregroundColor(color).fontWeight(.medium).disabled(title.isEmpty)}
+                ToolbarItemGroup(placement:.keyboard) {
+                    Spacer()
+                    Button("Done") { dismissKeyboard() }.foregroundColor(AppTheme.accent)
+                }
             }
         }
         .onAppear {
@@ -2243,8 +2451,8 @@ struct TodayView: View {
         if let r = store.review(for:today) {
             draft = r
             journalSubmitted = r.isSubmitted && (r.rating > 0 || !r.journalGains.isEmpty
-                || !r.journalChallenges.isEmpty || !r.journalTomorrow.isEmpty
-                || !r.gainKeywords.isEmpty || !r.challengeKeywords.isEmpty || !r.tomorrowKeywords.isEmpty)
+                || !r.journalChallenges.isEmpty
+                || !r.gainKeywords.isEmpty || !r.challengeKeywords.isEmpty)
         } else {
             draft = DayReview(date:today)
             journalSubmitted = false
@@ -2257,7 +2465,6 @@ struct TodayView: View {
         if let live = store.review(for: store.today) {
             toSave.challengeKeywords = live.challengeKeywords
             toSave.gainKeywords      = live.gainKeywords
-            toSave.tomorrowKeywords  = live.tomorrowKeywords
         }
         store.autoSaveReview(toSave)
     }
@@ -2291,7 +2498,7 @@ struct TodayView: View {
                         }.frame(maxWidth:.infinity).padding(.vertical,36)
                     }
 
-                    // ── 今日心得（合并版：心情 + 收获 + 困难 + 明日）──
+                    // ── 今日心得（合并版：心情 + 收获 + 困难）──
                     TodayJournalCard(
                         draft:$draft, isSubmitted:$journalSubmitted, store:store,
                         onExpand:{ withAnimation(.spring(response:0.5)){
@@ -2334,10 +2541,8 @@ struct TodayView: View {
             .onChange(of: draft.rating)            { _, _ in autoSaveDraft() }
             .onChange(of: draft.journalGains)      { _, _ in autoSaveDraft() }
             .onChange(of: draft.journalChallenges) { _, _ in autoSaveDraft() }
-            .onChange(of: draft.journalTomorrow)   { _, _ in autoSaveDraft() }
             .onChange(of: draft.gainKeywords)      { _, _ in autoSaveDraft() }
             .onChange(of: draft.challengeKeywords) { _, _ in autoSaveDraft() }
-            .onChange(of: draft.tomorrowKeywords)  { _, _ in autoSaveDraft() }
         }
     }
 }
@@ -2439,7 +2644,6 @@ struct TodayJournalCard: View {
     @EnvironmentObject var pro: ProStore
     @State private var expanded = false
     @State private var showGainDetail = false
-    @State private var showTomorrowDetail = false
     @State private var showSmartSummary = false
 
     let emojis = ["😞","😶","🙂","🤍","✨"]
@@ -2465,7 +2669,6 @@ struct TodayJournalCard: View {
         let liveChallengeKW = store.review(for:store.today)?.challengeKeywords ?? []
         return draft.rating > 0 || !draft.gainKeywords.isEmpty
             || !draft.challengeKeywords.isEmpty || !liveChallengeKW.isEmpty
-            || !draft.tomorrowKeywords.isEmpty
     }
 
     var body: some View {
@@ -2486,7 +2689,7 @@ struct TodayJournalCard: View {
                     Spacer()
                     if draft.rating > 0 { Text(emojis[draft.rating-1]).font(.body) }
                     // 关键词计数徽标
-                    let kwCount = draft.gainKeywords.count + draft.challengeKeywords.count + draft.tomorrowKeywords.count
+                    let kwCount = draft.gainKeywords.count + draft.challengeKeywords.count
                     if kwCount > 0 {
                         Text("\(kwCount)\(store.language == .english ? " words" : store.language == .japanese ? "語" : store.language == .korean ? "개" : store.language == .spanish ? " palabras" : "词")")
                             .font(.system(size:DSTSize.micro, weight:.regular, design:.rounded))
@@ -2529,19 +2732,11 @@ struct TodayJournalCard: View {
                     // ── 2. 今日待决标签（实时读写 store，全视图同步）──
                     ChallengeKeywordSection()
 
-                    // ── 3. 今日收获（实时写 store，四视图同步）────
+                    // ── 3. 今日收获（实时写 store）────
                     LiveKeywordSection(
-                        kwType:.gain, icon:"star.fill", color:AppTheme.accent,
+                        icon:"star.fill", color:AppTheme.accent,
                         title:store.t(key: L10n.winsToday),
                         hint:store.t(key: L10n.winsHint)
-                    )
-
-                    // ── 4. 今日计划（实时写 store，四视图同步）────
-                    LiveKeywordSection(
-                        kwType:.plan, icon:"arrow.right.circle.fill",
-                        color:Color(red:0.780,green:0.500,blue:0.700),
-                        title:store.t(key: L10n.tomorrowPlan),
-                        hint:store.t(key: L10n.tomorrowHint)
                     )
 
                     // ── 提交 ────────────────────────────────
@@ -2551,7 +2746,6 @@ struct TodayJournalCard: View {
                         if let live = store.review(for:store.today) {
                             toSubmit.challengeKeywords = live.challengeKeywords
                             toSubmit.gainKeywords      = live.gainKeywords
-                            toSubmit.tomorrowKeywords  = live.tomorrowKeywords
                         }
                         store.submitReview(toSubmit)
                         draft = toSubmit
@@ -2804,7 +2998,7 @@ struct TodayGoalSection: View {
     @State private var showJournal = false
 
     // Use store.tasks(for:date,goal:) to respect pinnedDate, skips, overrides
-    var allTasks: [GoalTask] { storeEnv.tasks(for: date, goal: goal) }
+    var allTasks: [GoalTask] { storeEnv.tasks(for: date, goal: goal).sorted { $0.priority.rawValue > $1.priority.rawValue } }
     // Compute pct from allTasks directly (consistent with task list shown)
     var pct: Double {
         guard !allTasks.isEmpty else { return 0 }
@@ -3084,11 +3278,18 @@ struct TodaySliderRow: View {
                 .buttonStyle(.plain)
                 .animation(.spring(response:0.2, dampingFraction:0.7), value:done)
 
-                Text(task.title)
-                    .font(.system(size:DSTSize.label, weight:.medium, design:.rounded))
-                    .foregroundColor(done ? AppTheme.textTertiary.opacity(0.55) : AppTheme.textPrimary.opacity(0.92))
-                    .strikethrough(done && !hasMinutes, color:AppTheme.textTertiary.opacity(0.35))
-                    .animation(.easeInOut(duration:0.18), value:done)
+                HStack(spacing:4) {
+                    if task.priority != .none && !done {
+                        Image(systemName:task.priority.icon)
+                            .font(.system(size:9, weight:.semibold))
+                            .foregroundColor(task.priority.color)
+                    }
+                    Text(task.title)
+                        .font(.system(size:DSTSize.label, weight:.medium, design:.rounded))
+                        .foregroundColor(done ? AppTheme.textTertiary.opacity(0.55) : AppTheme.textPrimary.opacity(0.92))
+                        .strikethrough(done && !hasMinutes, color:AppTheme.textTertiary.opacity(0.35))
+                        .animation(.easeInOut(duration:0.18), value:done)
+                }
 
                 Spacer(minLength:4)
 
@@ -3098,7 +3299,7 @@ struct TodaySliderRow: View {
                     .animation(.easeInOut(duration:0.12), value:cur)
                     .monospacedDigit()
             }
-            .padding(.leading, -8)  // offset to align circle edge with left margin
+            .padding(.leading, 0)  // aligned with left margin
 
             // ── Progress track (only for timed tasks, or show completion) ──
             if hasMinutes || true {
@@ -3363,9 +3564,7 @@ struct TodayDailySummaryCard: View {
 
 // ── 通用实时关键词标签（收获/计划，直接写store）────────────────────
 struct LiveKeywordSection: View {
-    enum KWType { case gain, plan }
     @EnvironmentObject var store: AppStore
-    let kwType: KWType
     let icon: String; let color: Color; let title: String; let hint: String
 
     @State private var inputText = ""
@@ -3375,11 +3574,7 @@ struct LiveKeywordSection: View {
     @FocusState private var editFocused: Bool
 
     var liveKW: [String] {
-        let r = store.review(for: store.today)
-        switch kwType {
-        case .gain: return r?.gainKeywords ?? []
-        case .plan: return r?.tomorrowKeywords ?? []
-        }
+        store.review(for: store.today)?.gainKeywords ?? []
     }
 
     var body: some View {
@@ -3455,27 +3650,18 @@ struct LiveKeywordSection: View {
     func addKW() {
         let kw = inputText.trimmingCharacters(in:.whitespaces)
         guard !kw.isEmpty, !liveKW.contains(kw) else { inputText = ""; return }
-        switch kwType {
-        case .gain: store.addTodayGainKeyword(kw)
-        case .plan: store.addTodayPlanKeyword(kw)
-        }
+        store.addTodayGainKeyword(kw)
         inputText = ""
     }
     func deleteKW(_ kw: String) {
         editingKW = nil
-        switch kwType {
-        case .gain: store.removeTodayGainKeyword(kw)
-        case .plan: store.removeTodayPlanKeyword(kw)
-        }
+        store.removeTodayGainKeyword(kw)
     }
     func commitEdit(from old: String) {
         let kw = editDraft.trimmingCharacters(in:.whitespaces)
         if kw.isEmpty { deleteKW(old) }
         else if kw != old {
-            switch kwType {
-            case .gain: store.renameTodayGainKeyword(from:old, to:kw)
-            case .plan: store.renameTodayPlanKeyword(from:old, to:kw)
-            }
+            store.renameTodayGainKeyword(from:old, to:kw)
         }
         editingKW = nil
     }
@@ -5566,11 +5752,9 @@ struct WeekChartPanel: View {
                     }
                     // 该日所有收获（日记 + 覆盖这天的周总结）
                     let allGains = store.allGainKeywords(for:[entry.date])
-                    let allPlans = store.allPlanKeywords(for:[entry.date])
                     if !allGains.isEmpty { kwRow(icon:"star.fill",color:AppTheme.accent,label:store.t(key: L10n.wins),kws:allGains) }
-                    if !allPlans.isEmpty { kwRow(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t(key: L10n.plan),kws:allPlans) }
                     if !r.challengeKeywords.isEmpty { kwRow(icon:"exclamationmark.triangle.fill",color:AppTheme.gold,label:store.t(key: L10n.pending),kws:r.challengeKeywords) }
-                    if allGains.isEmpty && allPlans.isEmpty && r.challengeKeywords.isEmpty {
+                    if allGains.isEmpty && r.challengeKeywords.isEmpty {
                         Text(store.t(key: L10n.checkedInNoKW)).font(.system(size: DSTSize.caption, weight: .regular, design:.rounded)).misty(.tertiary)
                     }
                 } else {
@@ -5635,7 +5819,6 @@ struct MonthChartPanel: View {
             let rate = store.avgCompletion(for:we.dates)
             // 聚合这周所有收获（日记 + 周总结）
             let allGains = store.allGainKeywords(for:we.dates)
-            let allPlans = store.allPlanKeywords(for:we.dates)
             VStack(alignment:.leading, spacing:8) {
                 HStack {
                     Text(we.weekLabel).font(.caption.weight(.medium)).foregroundColor(AppTheme.textSecondary)
@@ -5644,11 +5827,10 @@ struct MonthChartPanel: View {
                     if let m = ws?.mood, m > 0 { Text(["","😞","😶","🙂","🤍","✨"][m]).font(.caption) }
                 }
                 if !allGains.isEmpty { kwRow(icon:"star.fill",color:AppTheme.accent,label:store.t(key: L10n.wins),kws:allGains) }
-                if !allPlans.isEmpty { kwRow(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t(key: L10n.plan),kws:allPlans) }
                 if let ws = ws, !ws.challengeKeywords.isEmpty {
                     kwRow(icon:"exclamationmark.triangle.fill",color:AppTheme.gold,label:store.t(key: L10n.pending),kws:ws.challengeKeywords)
                 }
-                if allGains.isEmpty && allPlans.isEmpty {
+                if allGains.isEmpty {
                     Text(store.t(key: L10n.noWeeklySummary)).font(.system(size: DSTSize.caption, weight: .regular, design:.rounded)).misty(.tertiary)
                 }
             }
@@ -5708,7 +5890,6 @@ struct YearChartPanel: View {
         if let me = yearData[safe:idx] {
             let rate = store.avgCompletion(for:me.dates)
             let allGains = store.allGainKeywords(for:me.dates)
-            let allPlans = store.allPlanKeywords(for:me.dates)
             let moodDist = store.moodDistribution(for:me.dates)
             VStack(alignment:.leading, spacing:8) {
                 HStack {
@@ -5722,8 +5903,7 @@ struct YearChartPanel: View {
                     }
                 }
                 if !allGains.isEmpty { kwRow(icon:"star.fill",color:AppTheme.accent,label:store.t(key: L10n.wins),kws:allGains) }
-                if !allPlans.isEmpty { kwRow(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t(key: L10n.plan),kws:allPlans) }
-                if allGains.isEmpty && allPlans.isEmpty {
+                if allGains.isEmpty {
                     Text(store.t(key: L10n.noMonthlySummary)).font(.system(size: DSTSize.caption, weight: .regular, design:.rounded)).misty(.tertiary)
                 }
             }
@@ -6807,10 +6987,6 @@ struct MergedSummaryCard: View {
                         MetricTile(value:"\(gainKW.count)",
                             label:store.t(key: L10n.wins), color:accentGreen,
                             items: gainKW)
-                        vDivider
-                        MetricTile(value:"\(store.allPlanKeywords(for:dates).count)",
-                            label:store.t(key: L10n.plans), color:accentPurple,
-                            items: store.allPlanKeywords(for:dates))
                     }
                 }
                 .background(AppTheme.bg2.opacity(0.35))
@@ -6909,8 +7085,7 @@ struct MonthlyDigestCard: View {
                     let ws = store.periodSummary(type:0, label:we.periodLabel)
                     let challengeKW = ws?.challengeKeywords ?? []
                     let gainKW     = store.allGainKeywords(for:we.dates)
-                    let nextKW     = store.allPlanKeywords(for:we.dates)
-                    let hasContent = ws != nil || !gainKW.isEmpty || !nextKW.isEmpty
+                    let hasContent = ws != nil || !gainKW.isEmpty
 
                     VStack(alignment:.leading, spacing:0) {
                         // 主行
@@ -6975,9 +7150,6 @@ struct MonthlyDigestCard: View {
                                             }
                                         }
                                     }
-                                }
-                                if !nextKW.isEmpty {
-                                    weekMiniKWRow(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t(key: L10n.plan),kws:nextKW)
                                 }
                             }
                             .padding(.leading,36).padding(.bottom,10).padding(.top,2)
@@ -7052,8 +7224,7 @@ struct YearlyDigestCard: View {
                     let ms = store.periodSummary(type:1, label:me.periodLabel)
                     let challengeKW = ms?.challengeKeywords ?? []
                     let gainKW     = store.allGainKeywords(for:me.dates)
-                    let nextKW_m   = store.allPlanKeywords(for:me.dates)
-                    let hasContent = ms != nil || !gainKW.isEmpty || !nextKW_m.isEmpty
+                    let hasContent = ms != nil || !gainKW.isEmpty
                     let isCurrent = Calendar.current.component(.month, from:store.today) == me.month
 
                     VStack(alignment:.leading, spacing:0) {
@@ -7118,9 +7289,6 @@ struct YearlyDigestCard: View {
                                             }
                                         }
                                     }
-                                }
-                                if let nextKW = ms.nextKeywords as [String]?, !nextKW.isEmpty {
-                                    monthMiniKWRow(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t(key: L10n.plan),kws:nextKW)
                                 }
                             }
                             .padding(.leading,36).padding(.bottom,10).padding(.top,2)
@@ -7236,7 +7404,7 @@ struct WeeklyDigestCard: View {
     struct DayRow: Identifiable {
         let id = UUID()
         let date: Date; let label: String; let rate: Double; let rating: Int
-        let gainKW: [String]; let challengeKW: [String]; let tomorrowKW: [String]
+        let gainKW: [String]; let challengeKW: [String]
         let isFuture: Bool
     }
 
@@ -7259,7 +7427,6 @@ struct WeeklyDigestCard: View {
                 rating:rev?.rating ?? 0,
                 gainKW:rev?.gainKeywords ?? [],
                 challengeKW:rev?.challengeKeywords ?? [],
-                tomorrowKW:rev?.tomorrowKeywords ?? [],
                 isFuture:Calendar.current.startOfDay(for:d) > tod
             )
         }
@@ -7286,7 +7453,7 @@ struct WeeklyDigestCard: View {
                 ForEach(rows) { row in
                     let isTdy = Calendar.current.isDate(row.date, inSameDayAs:store.today)
                     let isExp = expandedDay.map { Calendar.current.isDate($0,inSameDayAs:row.date) } ?? false
-                    let hasDetail = !row.gainKW.isEmpty || !row.challengeKW.isEmpty || !row.tomorrowKW.isEmpty
+                    let hasDetail = !row.gainKW.isEmpty || !row.challengeKW.isEmpty
 
                     VStack(alignment:.leading, spacing:0) {
                         // 主行
@@ -7325,7 +7492,6 @@ struct WeeklyDigestCard: View {
                                 HStack(spacing:3) {
                                     if !row.gainKW.isEmpty { Circle().fill(AppTheme.accent.opacity(0.7)).frame(width:5,height:5) }
                                     if !row.challengeKW.isEmpty { Circle().fill(AppTheme.gold.opacity(0.8)).frame(width:5,height:5) }
-                                    if !row.tomorrowKW.isEmpty { Circle().fill(Color(red:0.780,green:0.500,blue:0.700).opacity(0.7)).frame(width:5,height:5) }
                                 }.frame(width:24)
 
                                 if hasDetail && !row.isFuture {
@@ -7365,11 +7531,6 @@ struct WeeklyDigestCard: View {
                                             }
                                         }
                                     }
-                                }
-                                if !row.tomorrowKW.isEmpty {
-                                    miniKWRow(icon:"arrow.right.circle.fill",
-                                              color:Color(red:0.780,green:0.500,blue:0.700),
-                                              label:store.t(key: L10n.tomorrowLabel), kws:row.tomorrowKW)
                                 }
                             }
                             .padding(.leading,32).padding(.bottom,10).padding(.top,2)
@@ -7419,10 +7580,8 @@ struct PeriodSummaryCard: View {
     @State private var draftMood = 0
     @State private var draftGainKW: [String] = []
     @State private var draftChallengeKW: [String] = []
-    @State private var draftNextKW: [String] = []
     @State private var draftGainDetail = ""
     @State private var draftChallengeDetail = ""
-    @State private var draftNextDetail = ""
     @State private var challengeTrackerOpen = false
     @State private var periodNoteKW: String? = nil
     @State private var showSmartSummary = false
@@ -7483,8 +7642,7 @@ struct PeriodSummaryCard: View {
             var base = ex.challengeKeywords.filter { !inheritedChallengeKW.contains($0) }
             for kw in todayNewKW where !base.contains(kw) { base.append(kw) }
             draftChallengeKW = base
-            draftNextKW = ex.nextKeywords
-            draftGainDetail = ex.gains; draftChallengeDetail = ex.challenges; draftNextDetail = ex.outlook
+            draftGainDetail = ex.gains; draftChallengeDetail = ex.challenges
         } else {
             // 预填：从下层关键词聚合 ∪ 今日追踪层新增词
             let agg = store.aggregateKeywordsFromPeriods(type:range, dates:periodDates)
@@ -7492,7 +7650,6 @@ struct PeriodSummaryCard: View {
             for kw in todayNewKW where !base.contains(kw) { base.append(kw) }
             draftGainKW = Array(agg.gains.prefix(5))
             draftChallengeKW = base
-            draftNextKW = Array(agg.nexts.prefix(5))
         }
         editing = true
     }
@@ -7504,8 +7661,8 @@ struct PeriodSummaryCard: View {
 
         var s = existing ?? PeriodSummary(periodType:range, periodLabel:periodLabel, startDate:Date())
         s.mood = draftMood
-        s.gainKeywords = draftGainKW; s.challengeKeywords = draftChallengeKW; s.nextKeywords = draftNextKW
-        s.gains = draftGainDetail; s.challenges = draftChallengeDetail; s.outlook = draftNextDetail
+        s.gainKeywords = draftGainKW; s.challengeKeywords = draftChallengeKW
+        s.gains = draftGainDetail; s.challenges = draftChallengeDetail
         s.avgCompletion = store.avgCompletion(for:periodDates)
         s.submittedAt = Date()
         store.submitPeriodSummary(s)
@@ -7731,10 +7888,6 @@ struct PeriodSummaryCard: View {
                 title:L10n.typeWinsTitle(typeName, store.language),
                 hint:store.t(key: L10n.kwHintWins),
                 keywords:$draftGainKW, detail:$draftGainDetail, store:store)
-            PeriodKeywordField(icon:"arrow.right.circle.fill", color:Color(red:0.780,green:0.500,blue:0.700),
-                title:L10n.typePlanTitle(typeName, store.language),
-                hint:store.t(key: L10n.kwHintPlan),
-                keywords:$draftNextKW, detail:$draftNextDetail, store:store)
             HStack {
                 Button(store.t(key: L10n.cancel)){ editing=false }.font(.system(size: DSTSize.caption, weight: .regular, design:.rounded)).misty(.tertiary)
                 Spacer()
@@ -8240,7 +8393,6 @@ struct JournalListView: View {
                     case 0: OverviewTab().transition(.opacity)
                     case 1: InsightTab().transition(.opacity)
                     case 2: GoalAchievementTab().transition(.opacity)
-                    case 3: HistoryKWTab(kwType:.plan).transition(.opacity)
                     default: EmptyView()
                     }
                 }
@@ -8269,7 +8421,6 @@ struct JournalListView: View {
         .init(sf:"chart.bar",           filledSF:"chart.bar.fill",           label:store.t(key: L10n.overviewLabel)),
         .init(sf:"lightbulb",           filledSF:"lightbulb.fill",           label:store.t(key: L10n.insightsLabel)),
         .init(sf:"star",                filledSF:"star.fill",                label:store.t(key: L10n.wins)),
-        .init(sf:"arrow.right.circle",  filledSF:"arrow.right.circle.fill",  label:store.t(key: L10n.plans)),
     ]}
 }
 
@@ -8404,7 +8555,6 @@ struct OverviewTab: View {
             let goalC = Set(active.flatMap{store.goals(for:$0).map{$0.id}}).count
             let dist  = store.moodDistribution(for:active)
             let gains = store.allGainKeywords(for:active)
-            let plans = store.allPlanKeywords(for:active)
             let activeDays = active.filter{store.completionRate(for:$0)>0}.count
 
             VStack(alignment:.leading, spacing:12) {
@@ -8434,10 +8584,6 @@ struct OverviewTab: View {
                 if !gains.isEmpty {
                     kwCloud(icon:"star.fill", color:AppTheme.accent,
                             label:L10n.winsCountFmt(gains.count, store.language), kws:gains)
-                }
-                if !plans.isEmpty {
-                    kwCloud(icon:"arrow.right.circle.fill", color:Color(red:0.6,green:0.5,blue:0.9),
-                            label:L10n.plansCountFmt(plans.count, store.language), kws:plans)
                 }
             }
         }
@@ -9916,9 +10062,7 @@ struct GoalAchievementTab: View {
 
 
 struct HistoryKWTab: View {
-    enum KWType { case gain, plan }
     @EnvironmentObject var store: AppStore
-    let kwType: KWType
 
     @State private var expandedYears:  Set<Int>    = []
     @State private var expandedMonths: Set<String> = []
@@ -9928,9 +10072,9 @@ struct HistoryKWTab: View {
     @State private var editInput = ""
     @FocusState private var editFocused: Bool
 
-    var color: Color  { kwType == .gain ? AppTheme.accent : Color(red:0.6,green:0.5,blue:0.9) }
-    var icon:  String { kwType == .gain ? "star.fill" : "arrow.right.circle.fill" }
-    var kwDates: [Date] { kwType == .gain ? store.datesWithGains : store.datesWithPlans }
+    var color: Color  { AppTheme.accent }
+    var icon:  String { "star.fill" }
+    var kwDates: [Date] { store.datesWithGains }
     var allYears: [GrowthYearEntry] {
         store.allGrowthYears().filter{ ye in kwDates.contains{ Calendar.current.component(.year,from:$0)==ye.year } }
     }
@@ -9963,13 +10107,12 @@ struct HistoryKWTab: View {
             HStack {
                 Image(systemName:icon).font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(color)
                 Text({
-                    let isGain = kwType == .gain
                     switch store.language {
-                    case .chinese:  return isGain ? "高频收获词" : "高频计划词"
-                    case .japanese: return isGain ? "よくある成果" : "よくある計画"
-                    case .korean:   return isGain ? "주요 성과 키워드" : "주요 계획 키워드"
-                    case .spanish:  return isGain ? "Logros frecuentes" : "Planes frecuentes"
-                    case .english:  return isGain ? "Top wins" : "Top plans"
+                    case .chinese:  return "高频收获词"
+                    case .japanese: return "よくある成果"
+                    case .korean:   return "주요 성과 키워드"
+                    case .spanish:  return "Logros frecuentes"
+                    case .english:  return "Top wins"
                     }
                 }())
                     .font(.system(size:DSTSize.caption,weight:.semibold, design:.rounded)).foregroundColor(color)
@@ -10140,7 +10283,7 @@ struct HistoryKWTab: View {
     }
 
     func kwsFor(dates:[Date]) -> [String] {
-        kwType == .gain ? store.allGainKeywords(for:dates) : store.allPlanKeywords(for:dates)
+        store.allGainKeywords(for:dates)
     }
 
     @ViewBuilder func kwBadge(_ n:Int) -> some View {
@@ -10154,7 +10297,7 @@ struct HistoryKWTab: View {
     }
 
     func openEdit(date:Date) {
-        editKWs = kwType == .gain ? store.gainKeywords(for:date) : store.planKeywords(for:date)
+        editKWs = store.gainKeywords(for:date)
         editingDate = date
     }
 
@@ -10190,13 +10333,12 @@ struct HistoryKWTab: View {
             }
             .padding(.top,16)
             .navigationTitle({
-                let isGain = kwType == .gain
                 switch store.language {
-                case .chinese:  return isGain ? "编辑收获" : "编辑计划"
-                case .japanese: return isGain ? "成果を編集" : "計画を編集"
-                case .korean:   return isGain ? "성과 편집" : "계획 편집"
-                case .spanish:  return isGain ? "Editar logros" : "Editar planes"
-                case .english:  return isGain ? "Edit Wins" : "Edit Plans"
+                case .chinese:  return "编辑收获"
+                case .japanese: return "成果を編集"
+                case .korean:   return "성과 편집"
+                case .spanish:  return "Editar logros"
+                case .english:  return "Edit Wins"
                 }
             }())
             .navigationBarTitleDisplayMode(.inline)
@@ -10204,8 +10346,7 @@ struct HistoryKWTab: View {
                 ToolbarItem(placement:.cancellationAction){ Button(store.t(key: L10n.cancel)){ editingDate=nil } }
                 ToolbarItem(placement:.confirmationAction){
                     Button(store.t(key: L10n.save)){
-                        if kwType == .gain { store.replaceGainKeywords(editKWs, for:date) }
-                        else               { store.replacePlanKeywords(editKWs, for:date) }
+                        store.replaceGainKeywords(editKWs, for:date)
                         editingDate=nil
                     }.fontWeight(.semibold)
                 }
@@ -10283,7 +10424,6 @@ struct SmartSummarySheet: View {
         return store.periodChallengeState(dates:ctx.dates)
     }
     var gainKW:  [String] { store.allGainKeywords(for:ctx.dates) }
-    var planKW:  [String] { store.allPlanKeywords(for:ctx.dates) }
     var insight: String   { store.smartSummary(type:max(0,ctx.periodType), label:ctx.periodLabel, dates:ctx.dates) }
 
     // Palette
@@ -10349,8 +10489,6 @@ struct SmartSummarySheet: View {
                         HStack(spacing:0) {
                             statCell("\(ts.done)/\(ts.total)", store.t(key: L10n.tasks), AppTheme.accent)
                             statDivider
-                            statCell("\(planKW.count)", store.t(key: L10n.plans), accentPurple)
-                            statDivider
                             let activeDays = ctx.dates.filter{ store.completionRate(for:$0) > 0 }.count
                             statCell(ctx.dates.count <= 1 ? "—" : "\(activeDays)",
                                      store.t(key: L10n.activeDays), AppTheme.textSecondary)
@@ -10365,7 +10503,6 @@ struct SmartSummarySheet: View {
                     if !gainKW.isEmpty { kwPanel(accentGreen, "star.fill", store.t(key: L10n.wins), gainKW) }
 
                     // ── 计划词云 ────────────────────────────
-                    if !planKW.isEmpty { kwPanel(accentPurple, "arrow.right.circle.fill", store.t(key: L10n.plans), planKW) }
 
                     // ── 智能洞察 — 3段式：Hero · Key Insights · Next Step ──
                     let ts2  = taskStats
@@ -10574,7 +10711,6 @@ struct JournalEntryCard: View {
             }
             if !entry.journalGains.isEmpty{JSnippet(icon:"star.fill",color:AppTheme.accent,label:store.t(key: L10n.winsShort),text:entry.journalGains)}
             if !entry.journalChallenges.isEmpty{JSnippet(icon:"exclamationmark.triangle.fill",color:AppTheme.gold,label:store.t(key: L10n.pending),text:entry.journalChallenges)}
-            if !entry.journalTomorrow.isEmpty{JSnippet(icon:"arrow.right.circle.fill",color:Color(red:0.780,green:0.500,blue:0.700),label:store.t(key: L10n.tomorrowLabel),text:entry.journalTomorrow)}
         }.padding(14).background(AppTheme.bg1).cornerRadius(14).overlay(RoundedRectangle(cornerRadius:14).stroke(AppTheme.border0,lineWidth:1))
     }
 }
