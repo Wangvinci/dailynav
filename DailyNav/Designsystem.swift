@@ -348,19 +348,36 @@ extension View {
 // MARK: 6.  Spacing / Corner Tokens (extend AppTheme)
 // ─────────────────────────────────────────────────────────────
 extension AppTheme {
-    // Corner radii
-    static let cornerXL:  CGFloat = 24
-    static let cornerL:   CGFloat = 18
-    static let cornerM:   CGFloat = 14
-    static let cornerS:   CGFloat = 10
+    // Corner radii — 4-stop scale
+    static let cornerXL:  CGFloat = 24   // modal sheets, large cards
+    static let cornerL:   CGFloat = 16   // standard cards, sections
+    static let cornerM:   CGFloat = 12   // input fields, buttons
+    static let cornerS:   CGFloat = 8    // chips, badges, small elements
 
-    // Spacing
-    static let cardPad:   CGFloat = 16
-    static let cardGap:   CGFloat = 12
-    static let sectionGap: CGFloat = 20
+    // Spacing — 4-stop scale
+    static let cardPad:   CGFloat = 14   // internal card padding
+    static let inputPad:  CGFloat = 13   // text field padding
+    static let sheetPad:  CGFloat = 20   // sheet/modal outer padding
+    static let cardGap:   CGFloat = 12   // gap between cards
+    static let sectionGap: CGFloat = 20  // gap between sections
 
     // Hairline
     static let hairline:  CGFloat = 0.5
+
+    // Border stroke widths — 3-stop scale
+    static let strokeSubtle:  CGFloat = 0.5   // dividers, inactive
+    static let strokeNormal:  CGFloat = 1.0   // default borders
+    static let strokeEmphasis: CGFloat = 1.5  // selected, focus
+
+    // Animation — 3-stop spring responses
+    static let animQuick:    Double = 0.22  // toggle, color select
+    static let animStandard: Double = 0.30  // expand/collapse, sheets
+    static let animSlow:     Double = 0.42  // page transitions
+    // Standard damping
+    static let animDamping:  Double = 0.82
+
+    // Minimum tap target (Apple HIG)
+    static let tapMin: CGFloat = 44
 }
 
 

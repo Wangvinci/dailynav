@@ -802,7 +802,7 @@ struct GoalsView: View {
                     .foregroundColor(isReordering ? AppTheme.accent : AppTheme.textTertiary)
                     .padding(.horizontal,8).padding(.vertical,4)
                     .background(isReordering ? AppTheme.accent.opacity(0.1) : AppTheme.bg2)
-                    .cornerRadius(7)
+                    .cornerRadius(AppTheme.cornerS)
                     .animation(.spring(response:0.28), value:isReordering)
                 }
                 Text(L10n.goalsCount(ordered.count, store.language))
@@ -1058,7 +1058,7 @@ struct GoalsView: View {
                 }
                 ToolbarItem(placement:.navigationBarTrailing) {
                     Button(action:{
-                        withAnimation(.spring(response:0.35)){
+                        withAnimation(.spring(response:AppTheme.animStandard)){
                             currentMonth=store.today; selectedDate=store.today
                         }
                     }) {
@@ -1159,15 +1159,15 @@ struct YearMonthWheelPicker: View {
                 Button(store.t(zh:"取消", en:"Cancel", ja:"キャンセル", ko:"취소", es:"Cancelar")) { onDismiss() }
                     .frame(maxWidth:.infinity).padding(.vertical,11)
                     .background(AppTheme.bg3).foregroundColor(AppTheme.textSecondary)
-                    .cornerRadius(10).overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border1,lineWidth:1))
+                    .cornerRadius(AppTheme.cornerM).overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border1,lineWidth:1))
                 Button(store.t(key: L10n.confirm)){
                     var c=DateComponents();c.year=sy;c.month=sm;c.day=1
                     if let d=Calendar.current.date(from:c){currentMonth=d}
                     onDismiss()
-                }.frame(maxWidth:.infinity).padding(.vertical,11).background(AppTheme.accent).cornerRadius(10).foregroundColor(AppTheme.bg0).fontWeight(.semibold)
+                }.frame(maxWidth:.infinity).padding(.vertical,11).background(AppTheme.accent).cornerRadius(AppTheme.cornerM).foregroundColor(AppTheme.bg0).fontWeight(.semibold)
             }
         }
-        .padding(16).background(AppTheme.bg1).cornerRadius(16)
+        .padding(16).background(AppTheme.bg1).cornerRadius(AppTheme.cornerL)
         .overlay(RoundedRectangle(cornerRadius:16).stroke(AppTheme.border1,lineWidth:1))
         .shadow(color:.black.opacity(0.4), radius:24, x:0, y:8)
         // Swipe down = cancel
@@ -1882,8 +1882,8 @@ struct PlanJournalSheet: View {
                         .padding(.horizontal, 16).padding(.vertical, 12).focused($focused)
                 }
                 .frame(maxWidth: .infinity, minHeight: 140)
-                .background(AppTheme.bg1).cornerRadius(12)
-                .overlay(RoundedRectangle(cornerRadius:12)
+                .background(AppTheme.bg1).cornerRadius(AppTheme.cornerM)
+                .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM)
                     .stroke(focused ? AppTheme.accent.opacity(0.5) : AppTheme.border0,
                             lineWidth: focused ? 1.5 : 1))
                 .padding(.horizontal, 20).padding(.top, 16)
@@ -1970,8 +1970,8 @@ struct GoalEditSheet: View {
                     VStack(alignment:.leading,spacing:7){
                         SectionLabel(store.t(key: L10n.goalTitle),icon:"flag")
                         TextField(store.t(key: L10n.goalTitlePlaceholderLocal),text:$title)
-                            .textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(12).foregroundColor(AppTheme.textPrimary)
-                            .overlay(RoundedRectangle(cornerRadius:12).stroke(titleFocused ? AppTheme.accent.opacity(0.5) : AppTheme.border1,lineWidth:1))
+                            .textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(AppTheme.cornerM).foregroundColor(AppTheme.textPrimary)
+                            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(titleFocused ? AppTheme.accent.opacity(0.5) : AppTheme.border1,lineWidth:1))
                             .focused($titleFocused)
                             .submitLabel(.done)
                     }
@@ -2005,7 +2005,7 @@ struct GoalEditSheet: View {
                                 ForEach(0..<5, id: \.self) { i in
                                     let c = AppTheme.palette[i]
                                     let isSel = (selectedColor == c)
-                                    Button(action: { withAnimation(.spring(response:0.20, dampingFraction:0.70)) { selectedColor = c } }) {
+                                    Button(action: { withAnimation(.spring(response:AppTheme.animQuick, dampingFraction:AppTheme.animDamping)) { selectedColor = c } }) {
                                         ZStack {
                                             Circle().fill(c).frame(width:30, height:30)
                                                 .shadow(color:c.opacity(isSel ? 0.60 : 0.22), radius:isSel ? 6 : 3)
@@ -2027,7 +2027,7 @@ struct GoalEditSheet: View {
                                     let i = j + 5
                                     let c = AppTheme.palette[i]
                                     let isSel = (selectedColor == c)
-                                    Button(action: { withAnimation(.spring(response:0.20, dampingFraction:0.70)) { selectedColor = c } }) {
+                                    Button(action: { withAnimation(.spring(response:AppTheme.animQuick, dampingFraction:AppTheme.animDamping)) { selectedColor = c } }) {
                                         ZStack {
                                             Circle().fill(c).frame(width:30, height:30)
                                                 .shadow(color:c.opacity(isSel ? 0.60 : 0.22), radius:isSel ? 6 : 3)
@@ -2055,8 +2055,8 @@ struct GoalEditSheet: View {
                                     VStack(spacing:4){Image(systemName:type == .deadline ? "calendar":"infinity").font(.title3);Text(type == .deadline ? store.t(key:L10n.goalTypeDeadline) : store.t(key:L10n.goalTypeOngoing)).font(.caption)}
                                         .frame(maxWidth:.infinity).padding(.vertical,13)
                                         .background(sel ? selectedColor.opacity(0.15):AppTheme.bg2)
-                                        .foregroundColor(sel ? selectedColor:AppTheme.textSecondary).cornerRadius(12)
-                                        .overlay(RoundedRectangle(cornerRadius:12).stroke(sel ? selectedColor.opacity(0.4):AppTheme.border0,lineWidth:1))
+                                        .foregroundColor(sel ? selectedColor:AppTheme.textSecondary).cornerRadius(AppTheme.cornerM)
+                                        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(sel ? selectedColor.opacity(0.4):AppTheme.border0,lineWidth:1))
                                 }
                             }
                         }
@@ -2093,8 +2093,8 @@ struct GoalEditSheet: View {
                             // 新建：可以选开始日期（支持回填历史目标）
                             DatePicker("",selection:$startDate,displayedComponents:.date)
                                 .datePickerStyle(.compact).labelsHidden().colorScheme(.dark)
-                                .padding(13).background(AppTheme.bg2).cornerRadius(12)
-                                .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border1,lineWidth:1))
+                                .padding(13).background(AppTheme.bg2).cornerRadius(AppTheme.cornerM)
+                                .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border1,lineWidth:1))
                             Text(store.t(key: L10n.longtermGoalHint))
                                 .font(.system(size: DSTSize.micro, weight: .regular, design:.rounded)).misty(.tertiary)
                         } else {
@@ -2106,7 +2106,7 @@ struct GoalEditSheet: View {
                                 Text(store.t(key: L10n.cannotChangeAfter))
                                     .font(.caption2).foregroundColor(AppTheme.textTertiary.opacity(0.6))
                             }
-                            .padding(13).background(AppTheme.bg2.opacity(0.5)).cornerRadius(12)
+                            .padding(13).background(AppTheme.bg2.opacity(0.5)).cornerRadius(AppTheme.cornerM)
                         }
                     }.transition(.opacity.combined(with:.move(edge:.top)))
                     // 截止日期
@@ -2116,7 +2116,7 @@ struct GoalEditSheet: View {
                             DatePicker("",selection:$endDate,in:startDate...,displayedComponents:.date)
                                 .datePickerStyle(.wheel).labelsHidden().colorScheme(.dark)
                                 .frame(maxWidth:.infinity).clipped().frame(height:120)
-                                .background(AppTheme.bg2).cornerRadius(12)
+                                .background(AppTheme.bg2).cornerRadius(AppTheme.cornerM)
                         }.transition(.opacity.combined(with:.move(edge:.top)))
                     }
                     // 任务
@@ -2124,7 +2124,7 @@ struct GoalEditSheet: View {
                         HStack{
                             SectionLabel(store.t(key: L10n.tasks),icon:"checklist");Spacer()
                             Button(action:{showingAddTask=true}){
-                                HStack(spacing:4){Image(systemName:"plus");Text(store.t(key: L10n.addLabel))}.font(.caption).padding(.horizontal,11).padding(.vertical,5).background(AppTheme.bg3).cornerRadius(8).foregroundColor(AppTheme.textSecondary).overlay(RoundedRectangle(cornerRadius:8).stroke(AppTheme.border1,lineWidth:1))
+                                HStack(spacing:4){Image(systemName:"plus");Text(store.t(key: L10n.addLabel))}.font(.caption).padding(.horizontal,11).padding(.vertical,5).background(AppTheme.bg3).cornerRadius(AppTheme.cornerS).foregroundColor(AppTheme.textSecondary).overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(AppTheme.border1,lineWidth:1))
                             }
                         }
                         if tasks.isEmpty{Text(store.t(key: L10n.noTasksYet)).font(.system(size: DSTSize.caption, weight: .regular, design:.rounded)).misty(.tertiary).frame(maxWidth:.infinity).padding(.vertical,12)}
@@ -2136,7 +2136,7 @@ struct GoalEditSheet: View {
                             HStack{
                                 SectionLabel(store.t(zh:"里程碑",en:"Milestones",ja:"マイルストーン",ko:"마일스톤",es:"Hitos"),icon:"flag.checkered");Spacer()
                                 Button(action:{showAddMilestone=true}){
-                                    HStack(spacing:4){Image(systemName:"plus");Text(store.t(key: L10n.addLabel))}.font(.caption).padding(.horizontal,11).padding(.vertical,5).background(AppTheme.bg3).cornerRadius(8).foregroundColor(AppTheme.textSecondary).overlay(RoundedRectangle(cornerRadius:8).stroke(AppTheme.border1,lineWidth:1))
+                                    HStack(spacing:4){Image(systemName:"plus");Text(store.t(key: L10n.addLabel))}.font(.caption).padding(.horizontal,11).padding(.vertical,5).background(AppTheme.bg3).cornerRadius(AppTheme.cornerS).foregroundColor(AppTheme.textSecondary).overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(AppTheme.border1,lineWidth:1))
                                 }
                             }
                             if milestones.isEmpty {
@@ -2168,8 +2168,8 @@ struct GoalEditSheet: View {
                                             Image(systemName:"xmark.circle.fill").foregroundColor(AppTheme.textTertiary.opacity(0.5)).font(.caption)
                                         }
                                     }
-                                    .padding(10).background(AppTheme.bg2).cornerRadius(10)
-                                    .overlay(RoundedRectangle(cornerRadius:10).stroke(milestones[i].isCompleted ? selectedColor.opacity(0.3) : AppTheme.border0, lineWidth:1))
+                                    .padding(AppTheme.cardPad).background(AppTheme.bg2).cornerRadius(AppTheme.cornerM)
+                                    .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(milestones[i].isCompleted ? selectedColor.opacity(0.3) : AppTheme.border0, lineWidth:AppTheme.strokeSubtle))
                                 }
                             }
                         }
@@ -2183,7 +2183,7 @@ struct GoalEditSheet: View {
                                     newPhaseEnd = Calendar.current.date(byAdding:.weekOfYear,value:2,to:startDate) ?? startDate
                                     showAddPhase = true
                                 }){
-                                    HStack(spacing:4){Image(systemName:"plus");Text(store.t(key: L10n.addLabel))}.font(.caption).padding(.horizontal,11).padding(.vertical,5).background(AppTheme.bg3).cornerRadius(8).foregroundColor(AppTheme.textSecondary).overlay(RoundedRectangle(cornerRadius:8).stroke(AppTheme.border1,lineWidth:1))
+                                    HStack(spacing:4){Image(systemName:"plus");Text(store.t(key: L10n.addLabel))}.font(.caption).padding(.horizontal,11).padding(.vertical,5).background(AppTheme.bg3).cornerRadius(AppTheme.cornerS).foregroundColor(AppTheme.textSecondary).overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(AppTheme.border1,lineWidth:1))
                                 }
                             }
                             if phases.isEmpty {
@@ -2204,8 +2204,8 @@ struct GoalEditSheet: View {
                                             Image(systemName:"xmark.circle.fill").foregroundColor(AppTheme.textTertiary.opacity(0.5)).font(.caption)
                                         }
                                     }
-                                    .padding(10).background(AppTheme.bg2).cornerRadius(10)
-                                    .overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border0,lineWidth:1))
+                                    .padding(AppTheme.cardPad).background(AppTheme.bg2).cornerRadius(AppTheme.cornerM)
+                                    .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border0,lineWidth:AppTheme.strokeSubtle))
                                 }
                             }
                         }
@@ -2221,8 +2221,8 @@ struct GoalEditSheet: View {
                         Spacer()
                         Toggle("", isOn:$showCalendarDot).tint(selectedColor).labelsHidden()
                     }
-                    .padding(14).background(AppTheme.bg2).cornerRadius(12)
-                    .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border1,lineWidth:1))
+                    .padding(14).background(AppTheme.bg2).cornerRadius(AppTheme.cornerM)
+                    .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border1,lineWidth:1))
                     // 删除目标按钮（仅编辑已有目标时显示）
                     if goal != nil {
                         Button(action:{showDeleteConfirm=true}){
@@ -2231,8 +2231,8 @@ struct GoalEditSheet: View {
                                 Text(store.t(key: L10n.deleteThisGoal))
                             }
                             .font(.subheadline).frame(maxWidth:.infinity).padding(.vertical,13)
-                            .background(Color.red.opacity(0.1)).foregroundColor(.red).cornerRadius(12)
-                            .overlay(RoundedRectangle(cornerRadius:12).stroke(Color.red.opacity(0.25),lineWidth:1))
+                            .background(Color.red.opacity(0.1)).foregroundColor(.red).cornerRadius(AppTheme.cornerM)
+                            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(Color.red.opacity(0.25),lineWidth:1))
                         }
                     }
                     Spacer(minLength:20)
@@ -2283,7 +2283,7 @@ struct GoalEditSheet: View {
                 NavigationView {
                     VStack(alignment:.leading, spacing:16) {
                         TextField(store.t(zh:"阶段名称",en:"Phase name",ja:"フェーズ名",ko:"단계 이름",es:"Nombre de la fase"), text:$newPhaseTitle)
-                            .textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(12).foregroundColor(AppTheme.textPrimary)
+                            .textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(AppTheme.cornerM).foregroundColor(AppTheme.textPrimary)
                         DatePicker(store.t(zh:"开始",en:"Start",ja:"開始",ko:"시작",es:"Inicio"), selection:$newPhaseStart, displayedComponents:.date).colorScheme(.dark)
                         DatePicker(store.t(zh:"结束",en:"End",ja:"終了",ko:"종료",es:"Fin"), selection:$newPhaseEnd, in:newPhaseStart..., displayedComponents:.date).colorScheme(.dark)
                         Spacer()
@@ -2344,7 +2344,7 @@ struct TaskEditRow: View {
             }
             Spacer()
             Button(action:onDelete){Image(systemName:"xmark.circle.fill").foregroundColor(AppTheme.textTertiary.opacity(0.7)).font(.body)}
-        }.padding(11).background(AppTheme.bg2).cornerRadius(10).overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border0,lineWidth:1))
+        }.padding(AppTheme.cardPad).background(AppTheme.bg2).cornerRadius(AppTheme.cornerM).overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border0,lineWidth:AppTheme.strokeSubtle))
     }
 }
 
@@ -2363,18 +2363,18 @@ struct TaskAddSheet: View {
                     VStack(alignment:.leading,spacing:7){
                         SectionLabel(store.t(key: L10n.taskNameLabel),icon:"pencil")
                         TextField(store.t(key: L10n.taskNamePlaceholderLocal),text:$title)
-                            .textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(12)
+                            .textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(AppTheme.cornerM)
                             .foregroundColor(AppTheme.textPrimary)
-                            .overlay(RoundedRectangle(cornerRadius:12).stroke(titleFocused ? color.opacity(0.5) : AppTheme.border1,lineWidth:1))
+                            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(titleFocused ? color.opacity(0.5) : AppTheme.border1,lineWidth:1))
                             .focused($titleFocused)
                             .submitLabel(.done)
                     }
                     HStack{Text(store.t(key: L10n.estimatedTimeLabel)).font(.system(size: DSTSize.body, weight: .regular, design:.rounded)).misty(.primary);Spacer();Toggle("",isOn:$useTime).tint(color).labelsHidden()}
                     if useTime {
                         VStack(spacing:10){
-                            HStack{Text(store.t(key: L10n.maxLabel)).font(.system(size: DSTSize.caption, weight: .regular, design:.rounded)).misty(.tertiary);TextField("120",text:$maxInput).keyboardType(.numberPad).textFieldStyle(.plain).frame(width:55).padding(8).background(AppTheme.bg3).cornerRadius(8).foregroundColor(AppTheme.textPrimary).multilineTextAlignment(.center).onChange(of:maxInput){if let n=Int(maxInput),n>0{maxMins=n}};Text(store.t(key: L10n.minuteLabel)).font(.system(size: DSTSize.caption, weight: .regular, design:.rounded)).misty(.tertiary)}
-                            Picker("",selection:$mins){ForEach(options,id:\.self){Text(L10n.minuteWithNumber($0, store.language)).tag($0)}}.pickerStyle(.wheel).frame(height:120).clipped().background(AppTheme.bg2).cornerRadius(12)
-                        }.padding(13).background(AppTheme.bg2).cornerRadius(12).overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1)).transition(.move(edge:.top).combined(with:.opacity))
+                            HStack{Text(store.t(key: L10n.maxLabel)).font(.system(size: DSTSize.caption, weight: .regular, design:.rounded)).misty(.tertiary);TextField("120",text:$maxInput).keyboardType(.numberPad).textFieldStyle(.plain).frame(width:55).padding(8).background(AppTheme.bg3).cornerRadius(AppTheme.cornerS).foregroundColor(AppTheme.textPrimary).multilineTextAlignment(.center).onChange(of:maxInput){if let n=Int(maxInput),n>0{maxMins=n}};Text(store.t(key: L10n.minuteLabel)).font(.system(size: DSTSize.caption, weight: .regular, design:.rounded)).misty(.tertiary)}
+                            Picker("",selection:$mins){ForEach(options,id:\.self){Text(L10n.minuteWithNumber($0, store.language)).tag($0)}}.pickerStyle(.wheel).frame(height:120).clipped().background(AppTheme.bg2).cornerRadius(AppTheme.cornerM)
+                        }.padding(13).background(AppTheme.bg2).cornerRadius(AppTheme.cornerM).overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border0,lineWidth:1)).transition(.move(edge:.top).combined(with:.opacity))
                     }
                     // Priority picker
                     VStack(alignment:.leading, spacing:7) {
@@ -2397,8 +2397,8 @@ struct TaskAddSheet: View {
                                     .padding(.horizontal,12).padding(.vertical,8)
                                     .background(sel ? (p == .none ? AppTheme.bg3 : p.color.opacity(0.15)) : AppTheme.bg2)
                                     .foregroundColor(sel ? (p == .none ? AppTheme.textPrimary : p.color) : AppTheme.textSecondary)
-                                    .cornerRadius(10)
-                                    .overlay(RoundedRectangle(cornerRadius:10).stroke(sel ? (p == .none ? AppTheme.border1 : p.color.opacity(0.4)) : AppTheme.border0, lineWidth:1))
+                                    .cornerRadius(AppTheme.cornerM)
+                                    .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(sel ? (p == .none ? AppTheme.border1 : p.color.opacity(0.4)) : AppTheme.border0, lineWidth:1))
                                 }
                             }
                         }
@@ -2575,7 +2575,7 @@ struct DailyChallengeTracker: View {
                             Text("\(totalResolved)/\(totalActive + totalResolved)")
                                 .font(.system(size: 10)).foregroundColor(AppTheme.gold)
                                 .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(AppTheme.gold.opacity(0.1)).cornerRadius(5)
+                                .background(AppTheme.gold.opacity(0.1)).cornerRadius(AppTheme.cornerS)
                         }
                         Image(systemName: expanded ? "chevron.up" : "chevron.down")
                             .font(.system(size: DSTSize.micro, weight: .regular, design:.rounded)).misty(.tertiary)
@@ -2618,7 +2618,7 @@ struct DailyChallengeTracker: View {
                                     }
                                     .padding(.horizontal, 10).padding(.vertical, 8)
                                     .background(solved ? AppTheme.accent.opacity(0.05) : AppTheme.gold.opacity(0.06))
-                                    .cornerRadius(8)
+                                    .cornerRadius(AppTheme.cornerS)
                                     .animation(.spring(response: 0.2), value: solved)
                                 }
                             }
@@ -2629,7 +2629,7 @@ struct DailyChallengeTracker: View {
                 }
             }
             .background(AppTheme.bg1)
-            .cornerRadius(14)
+            .cornerRadius(AppTheme.cornerL)
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(AppTheme.gold.opacity(0.2), lineWidth: 1))
         }
     }
@@ -2675,7 +2675,7 @@ struct TodayJournalCard: View {
         VStack(alignment:.leading, spacing:0) {
             // 标题行
             Button(action:{
-                withAnimation(.spring(response:0.45, dampingFraction:0.85)){ expanded.toggle() }
+                withAnimation(.spring(response:AppTheme.animSlow, dampingFraction:AppTheme.animDamping)){ expanded.toggle() }
                 if !expanded { DispatchQueue.main.asyncAfter(deadline:.now()+0.15){ onExpand?() } }
             }) {
                 HStack(spacing:8) {
@@ -2719,8 +2719,8 @@ struct TodayJournalCard: View {
                             ForEach(1...5, id:\.self) { i in
                                 Button(action:{ draft.rating = i }) {
                                     Text(emojis[i-1]).font(.title2).frame(maxWidth:.infinity).padding(.vertical,8)
-                                        .background(draft.rating==i ? AppTheme.accent.opacity(0.15) : AppTheme.bg2).cornerRadius(10)
-                                        .overlay(RoundedRectangle(cornerRadius:10).stroke(draft.rating==i ? AppTheme.accent.opacity(0.5) : AppTheme.border0, lineWidth:1))
+                                        .background(draft.rating==i ? AppTheme.accent.opacity(0.15) : AppTheme.bg2).cornerRadius(AppTheme.cornerM)
+                                        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(draft.rating==i ? AppTheme.accent.opacity(0.5) : AppTheme.border0, lineWidth:1))
                                 }
                                 .accessibilityLabel(moodLabels_en[i-1])
                                 .accessibilityAddTraits(.isButton)
@@ -2750,7 +2750,7 @@ struct TodayJournalCard: View {
                         store.submitReview(toSubmit)
                         draft = toSubmit
                         isSubmitted = true
-                        withAnimation(.spring(response:0.35)){ expanded = false }
+                        withAnimation(.spring(response:AppTheme.animStandard)){ expanded = false }
                         DispatchQueue.main.asyncAfter(deadline:.now()+0.4){
                             showSmartSummary = true
                         }
@@ -2761,9 +2761,9 @@ struct TodayJournalCard: View {
                         }
                         .font(.subheadline).fontWeight(.medium)
                         .frame(maxWidth:.infinity).padding(.vertical,13)
-                        .background(isSubmitted ? AppTheme.bg2 : AppTheme.accent.opacity(0.15)).cornerRadius(12)
+                        .background(isSubmitted ? AppTheme.bg2 : AppTheme.accent.opacity(0.15)).cornerRadius(AppTheme.cornerM)
                         .foregroundColor(isSubmitted ? AppTheme.textTertiary : AppTheme.accent)
-                        .overlay(RoundedRectangle(cornerRadius:12).stroke(isSubmitted ? AppTheme.border0 : AppTheme.accent.opacity(0.4), lineWidth:1))
+                        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(isSubmitted ? AppTheme.border0 : AppTheme.accent.opacity(0.4), lineWidth:1))
                     }
                     .disabled(!hasContent).opacity(hasContent ? 1 : 0.45)
                 }
@@ -2771,7 +2771,7 @@ struct TodayJournalCard: View {
                 .transition(.opacity.combined(with:.move(edge:.top)))
             }
         }
-        .background(AppTheme.bg1).cornerRadius(16)
+        .background(AppTheme.bg1).cornerRadius(AppTheme.cornerL)
         .overlay(RoundedRectangle(cornerRadius:16).stroke(isSubmitted ? AppTheme.accent.opacity(0.25) : AppTheme.border0, lineWidth:1))
         .onAppear { expanded = true }
         .sheet(isPresented:$showSmartSummary) {
@@ -2806,7 +2806,7 @@ struct KeywordInputSection: View {
                         Text(store.t(key: L10n.detailLabel)).font(.system(size:DSTSize.micro, weight:.regular, design:.rounded))
                     }.foregroundColor(showDetail ? color : AppTheme.textTertiary)
                     .padding(.horizontal,7).padding(.vertical,3)
-                    .background(showDetail ? color.opacity(0.12) : AppTheme.bg2).cornerRadius(6)
+                    .background(showDetail ? color.opacity(0.12) : AppTheme.bg2).cornerRadius(AppTheme.cornerS)
                 }
             }
 
@@ -2841,13 +2841,13 @@ struct KeywordInputSection: View {
                     .focused($focused)
                     .onSubmit { addKeyword() }
                     .padding(.horizontal,11).padding(.vertical,9)
-                    .background(AppTheme.bg2).cornerRadius(9)
-                    .overlay(RoundedRectangle(cornerRadius:9).stroke(focused ? color.opacity(0.4) : AppTheme.border1, lineWidth:1))
+                    .background(AppTheme.bg2).cornerRadius(AppTheme.cornerS)
+                    .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(focused ? color.opacity(0.4) : AppTheme.border1, lineWidth:1))
 
                 if !inputText.isEmpty {
                     Button(action:addKeyword) {
                         Image(systemName:"return").font(.caption).foregroundColor(color)
-                            .frame(width:34,height:34).background(color.opacity(0.12)).cornerRadius(9)
+                            .frame(width:AppTheme.tapMin,height:AppTheme.tapMin).background(color.opacity(0.12)).cornerRadius(AppTheme.cornerS)
                     }
                 }
             }
@@ -2869,13 +2869,13 @@ struct KeywordInputSection: View {
                         .frame(minHeight:56).padding(6).scrollContentBackground(.hidden)
                         .foregroundColor(AppTheme.textPrimary).font(.subheadline)
                 }
-                .background(AppTheme.bg2).cornerRadius(9)
-                .overlay(RoundedRectangle(cornerRadius:9).stroke(AppTheme.border1, lineWidth:1))
+                .background(AppTheme.bg2).cornerRadius(AppTheme.cornerS)
+                .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(AppTheme.border1, lineWidth:1))
                 .transition(.opacity.combined(with:.move(edge:.top)))
             }
         }
-        .padding(12).background(AppTheme.bg0.opacity(0.6)).cornerRadius(12)
-        .overlay(RoundedRectangle(cornerRadius:12).stroke(color.opacity(0.15), lineWidth:1))
+        .padding(12).background(AppTheme.bg0.opacity(0.6)).cornerRadius(AppTheme.cornerM)
+        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(color.opacity(0.15), lineWidth:1))
     }
 
     func addKeyword() {
@@ -2905,8 +2905,8 @@ struct JournalInputField: View {
                     .scrollContentBackground(.hidden)
                     .foregroundColor(AppTheme.textPrimary).font(.subheadline)
             }
-            .background(AppTheme.bg2).cornerRadius(10)
-            .overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border1, lineWidth:1))
+            .background(AppTheme.bg2).cornerRadius(AppTheme.cornerM)
+            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border1, lineWidth:1))
         }
     }
 }
@@ -2950,8 +2950,8 @@ struct GoalJournalEditSheet: View {
                         .padding(.horizontal,16).padding(.vertical,12).focused($focused)
                 }
                 .frame(maxWidth:.infinity, minHeight:160)
-                .background(AppTheme.bg1).cornerRadius(12)
-                .overlay(RoundedRectangle(cornerRadius:12)
+                .background(AppTheme.bg1).cornerRadius(AppTheme.cornerM)
+                .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM)
                     .stroke(focused ? AppTheme.accent.opacity(0.5) : AppTheme.border0,
                             lineWidth: focused ? 1.5 : 1))
                 .padding(.horizontal,20).padding(.top,16)
@@ -3434,7 +3434,7 @@ struct TodayDailySummaryCard: View {
                                     .foregroundColor(AppTheme.accent.opacity(0.65))
                             }
                             .padding(.horizontal, 9).padding(.vertical, 6)
-                            .background(AppTheme.accent.opacity(0.07)).cornerRadius(8)
+                            .background(AppTheme.accent.opacity(0.07)).cornerRadius(AppTheme.cornerS)
                             .overlay(RoundedRectangle(cornerRadius: 8).stroke(AppTheme.accent.opacity(0.15), lineWidth: 1))
                         }
                     } else if unresolvedCount > 0 {
@@ -3447,7 +3447,7 @@ struct TodayDailySummaryCard: View {
                                 .foregroundColor(pendingColor)
                         }
                         .padding(.horizontal, 9).padding(.vertical, 6)
-                        .background(pendingColor.opacity(0.08)).cornerRadius(8)
+                        .background(pendingColor.opacity(0.08)).cornerRadius(AppTheme.cornerS)
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(pendingColor.opacity(0.20), lineWidth: 1))
                     }
                 }
@@ -3599,20 +3599,20 @@ struct LiveKeywordSection: View {
                     .font(.system(size: DSTSize.body, weight: .regular, design:.rounded)).misty(.primary)
                     .focused($inputFocused).onSubmit { addKW() }
                     .padding(.horizontal,11).padding(.vertical,9)
-                    .background(AppTheme.bg2).cornerRadius(9)
-                    .overlay(RoundedRectangle(cornerRadius:9).stroke(inputFocused ? color.opacity(0.4) : AppTheme.border1, lineWidth:1))
+                    .background(AppTheme.bg2).cornerRadius(AppTheme.cornerS)
+                    .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(inputFocused ? color.opacity(0.4) : AppTheme.border1, lineWidth:1))
                 if !inputText.isEmpty {
                     Button(action:addKW) {
                         Image(systemName:"return").font(.caption).foregroundColor(color)
-                            .frame(width:34,height:34).background(color.opacity(0.12)).cornerRadius(9)
+                            .frame(width:AppTheme.tapMin,height:AppTheme.tapMin).background(color.opacity(0.12)).cornerRadius(AppTheme.cornerS)
                     }
                 }
             }
         }
         .padding(12)
         .background(AppTheme.bg0.opacity(0.6))
-        .cornerRadius(12)
-        .overlay(RoundedRectangle(cornerRadius:12).stroke(color.opacity(0.15), lineWidth:1))
+        .cornerRadius(AppTheme.cornerM)
+        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(color.opacity(0.15), lineWidth:1))
     }
 
     @ViewBuilder func chipView(kw: String) -> some View {
@@ -3716,7 +3716,7 @@ struct ChallengeTrackRow: View {
                         .focused($nameFocused)
                         .onSubmit { commitRename() }
                         .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(AppTheme.gold.opacity(0.1)).cornerRadius(5)
+                        .background(AppTheme.gold.opacity(0.1)).cornerRadius(AppTheme.cornerS)
                     Button(action: commitRename) {
                         Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
                             .foregroundColor(AppTheme.accent)
@@ -3766,7 +3766,7 @@ struct ChallengeTrackRow: View {
                         }
                         .foregroundColor(note.isEmpty ? AppTheme.textTertiary : AppTheme.accent)
                         .padding(.horizontal, 6).padding(.vertical, 3)
-                        .background(note.isEmpty ? AppTheme.bg3 : AppTheme.accent.opacity(0.1)).cornerRadius(5)
+                        .background(note.isEmpty ? AppTheme.bg3 : AppTheme.accent.opacity(0.1)).cornerRadius(AppTheme.cornerS)
                     }
                 } else {
                     Text(store.t(key: L10n.todoShort)).font(.system(size: 9)).foregroundColor(AppTheme.gold)
@@ -3774,8 +3774,8 @@ struct ChallengeTrackRow: View {
             }
             .padding(.horizontal, 10).padding(.vertical, 8)
             .background(solved ? AppTheme.accent.opacity(0.06) : AppTheme.gold.opacity(0.07))
-            .cornerRadius(10)
-            .overlay(RoundedRectangle(cornerRadius:10).stroke(solved ? AppTheme.accent.opacity(0.12) : AppTheme.gold.opacity(0.12),lineWidth:0.5))
+            .cornerRadius(AppTheme.cornerM)
+            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(solved ? AppTheme.accent.opacity(0.12) : AppTheme.gold.opacity(0.12),lineWidth:0.5))
 
             // 心得输入区
             if solved && noteExpanded {
@@ -3783,13 +3783,13 @@ struct ChallengeTrackRow: View {
                     TextEditor(text: $noteDraft)
                         .font(.system(size: 13)).foregroundColor(AppTheme.textPrimary)
                         .frame(minHeight: 60, maxHeight: 100)
-                        .padding(8).background(AppTheme.bg2).cornerRadius(8)
+                        .padding(8).background(AppTheme.bg2).cornerRadius(AppTheme.cornerS)
                     HStack {
                         Spacer()
                         Button(store.t(key: L10n.saveNote)) { onNoteSave(noteDraft); onNoteToggle() }
                             .font(.caption).foregroundColor(AppTheme.accent)
                             .padding(.horizontal, 10).padding(.vertical, 5)
-                            .background(AppTheme.accent.opacity(0.1)).cornerRadius(7)
+                            .background(AppTheme.accent.opacity(0.1)).cornerRadius(AppTheme.cornerS)
                     }
                 }
                 .padding(.horizontal, 10).padding(.top, 4)
@@ -3915,11 +3915,11 @@ struct PlanView: View {
                     .foregroundColor(color)
                     .padding(.horizontal,12).padding(.vertical,7)
                     .background(
-                        RoundedRectangle(cornerRadius:8)
+                        RoundedRectangle(cornerRadius:AppTheme.cornerS)
                             .fill(AppTheme.bg1)
                             .shadow(color:color.opacity(0.35),radius:14,y:6)
                     )
-                    .overlay(RoundedRectangle(cornerRadius:8).stroke(color.opacity(0.5),lineWidth:1.2))
+                    .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(color.opacity(0.5),lineWidth:1.2))
                     .fixedSize()
                     .position(
                         x: d.position.x - geo.frame(in:.global).minX,
@@ -4097,8 +4097,8 @@ struct PlanView: View {
             .padding(.horizontal,10).padding(.vertical,5)
             .background(AppTheme.bg3)
             .foregroundColor(AppTheme.accent.opacity(0.85))
-            .cornerRadius(8)
-            .overlay(RoundedRectangle(cornerRadius:8).stroke(AppTheme.accent.opacity(0.22), lineWidth:0.7))
+            .cornerRadius(AppTheme.cornerS)
+            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(AppTheme.accent.opacity(0.22), lineWidth:0.7))
         }
         .buttonStyle(.plain)
     }
@@ -4482,7 +4482,7 @@ struct PlanChipView: View {
                 ? chip.goal.color.opacity(isDraggingThis ? 0.03 : 0.045)   // done: very faint bg
                 : chip.goal.color.opacity(isDraggingThis ? 0.06 : 0.16)    // incomplete: richer bg
         )
-        .cornerRadius(7)
+        .cornerRadius(AppTheme.cornerS)
         .overlay(
             RoundedRectangle(cornerRadius: 7)
                 .stroke(chip.goal.color.opacity(
@@ -4606,8 +4606,8 @@ struct PlanChipEditSheet: View {
                     VStack(alignment:.leading,spacing:7){
                         SectionLabel(store.t(key: L10n.taskNameShort),icon:"pencil")
                         TextField(store.t(key: L10n.taskNamePH),text:$title)
-                            .textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(12).foregroundColor(AppTheme.textPrimary)
-                            .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border1,lineWidth:1))
+                            .textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(AppTheme.cornerM).foregroundColor(AppTheme.textPrimary)
+                            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border1,lineWidth:1))
                     }
                     // 切换目标
                     VStack(alignment:.leading,spacing:8){
@@ -4637,7 +4637,7 @@ struct PlanChipEditSheet: View {
                         Button(action:{showDeleteConfirm=true}){
                             HStack(spacing:6){ Image(systemName:"trash"); Text(store.t(key: L10n.deleteTaskLabel)) }
                                 .font(.subheadline).frame(maxWidth:.infinity).padding(.vertical,12)
-                                .background(Color.red.opacity(0.1)).foregroundColor(.red).cornerRadius(12)
+                                .background(Color.red.opacity(0.1)).foregroundColor(.red).cornerRadius(AppTheme.cornerM)
                         }
                     }
                     Spacer(minLength:20)
@@ -5217,8 +5217,8 @@ struct PlanAddTaskSheet: View {
                 VStack(alignment:.leading,spacing:7){
                     SectionLabel(store.t(key: L10n.taskNameShort),icon:"pencil")
                     TextField(store.t(key: L10n.taskNamePlaceholderLocal),text:$title)
-                        .textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(12).foregroundColor(AppTheme.textPrimary)
-                        .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border1,lineWidth:1))
+                        .textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(AppTheme.cornerM).foregroundColor(AppTheme.textPrimary)
+                        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border1,lineWidth:1))
                 }
                 HStack{
                     Text(store.t(key: L10n.estimatedTimeShort)).font(.system(size: DSTSize.body, weight: .regular, design:.rounded)).misty(.primary)
@@ -5230,7 +5230,7 @@ struct PlanAddTaskSheet: View {
                         ForEach(stride(from:5,through:120,by:5).map{$0},id:\.self){
                             Text(L10n.minuteWithNumber($0, store.language)).tag($0)
                         }
-                    }.pickerStyle(.wheel).frame(height:110).clipped().background(AppTheme.bg2).cornerRadius(12)
+                    }.pickerStyle(.wheel).frame(height:110).clipped().background(AppTheme.bg2).cornerRadius(AppTheme.cornerM)
                 }
                 Spacer()
             }.padding(20)
@@ -5278,11 +5278,11 @@ struct PlanTaskEditSheet: View {
             VStack(alignment:.leading,spacing:18){
                 VStack(alignment:.leading,spacing:7){
                     SectionLabel(storeEnv.t(key: L10n.taskNameThisDay),icon:"pencil")
-                    TextField(storeEnv.t(key: L10n.taskNamePlain),text:$title).textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(12).foregroundColor(AppTheme.textPrimary).overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border1,lineWidth:1))
+                    TextField(storeEnv.t(key: L10n.taskNamePlain),text:$title).textFieldStyle(.plain).padding(13).background(AppTheme.bg2).cornerRadius(AppTheme.cornerM).foregroundColor(AppTheme.textPrimary).overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border1,lineWidth:1))
                 }
                 HStack{Text(storeEnv.t(key: L10n.estimatedTimeLabel2)).font(.system(size: DSTSize.body, weight: .regular, design:.rounded)).misty(.primary);Spacer();Toggle("",isOn:$useTime).tint(goal.color).labelsHidden()}
                 if useTime{
-                    Picker("",selection:$minutes){ForEach(stride(from:5,through:120,by:5).map{$0},id:\.self){Text(L10n.minutesFmt($0, storeEnv.language)).tag($0)}}.pickerStyle(.wheel).frame(height:110).clipped().background(AppTheme.bg2).cornerRadius(12)
+                    Picker("",selection:$minutes){ForEach(stride(from:5,through:120,by:5).map{$0},id:\.self){Text(L10n.minutesFmt($0, storeEnv.language)).tag($0)}}.pickerStyle(.wheel).frame(height:110).clipped().background(AppTheme.bg2).cornerRadius(AppTheme.cornerM)
                 }
                 Spacer()
             }.padding(20)
@@ -5641,7 +5641,7 @@ private struct AgePickerPanel: View {
                 .foregroundColor(isSelected ? AppTheme.accent : AppTheme.textTertiary)
                 .padding(.horizontal,10).padding(.vertical,6)
                 .background(isSelected ? AppTheme.accent.opacity(0.1) : AppTheme.bg2)
-                .cornerRadius(8)
+                .cornerRadius(AppTheme.cornerS)
         }
     }
 }
@@ -6068,7 +6068,7 @@ struct YearChartPanel: View {
                 .font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(AppTheme.textTertiary)
         }
         .frame(maxWidth:.infinity, alignment:.leading)
-        .padding(8).background(AppTheme.bg2.opacity(0.6)).cornerRadius(10)
+        .padding(8).background(AppTheme.bg2.opacity(0.6)).cornerRadius(AppTheme.cornerM)
 
         // 最佳磁贴
         if let b = best {
@@ -6077,7 +6077,7 @@ struct YearChartPanel: View {
                 Text(store?.language == .english ? "Best" : store?.language == .japanese ? "最高" : store?.language == .korean ? "최고" : store?.language == .spanish ? "Mejor" : "最佳").font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(AppTheme.textTertiary)
             }
             .frame(maxWidth:.infinity, alignment:.leading)
-            .padding(8).background(AppTheme.bg2.opacity(0.6)).cornerRadius(10)
+            .padding(8).background(AppTheme.bg2.opacity(0.6)).cornerRadius(AppTheme.cornerM)
         }
 
         // 心情分布
@@ -6097,7 +6097,7 @@ struct YearChartPanel: View {
                     .font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(AppTheme.textTertiary)
             }
             .frame(maxWidth:.infinity, alignment:.leading)
-            .padding(8).background(AppTheme.bg2.opacity(0.6)).cornerRadius(10)
+            .padding(8).background(AppTheme.bg2.opacity(0.6)).cornerRadius(AppTheme.cornerM)
         }
     }
 }
@@ -6169,7 +6169,7 @@ extension View {
         Text(label).font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(AppTheme.textTertiary)
     }
     .frame(maxWidth:.infinity, alignment:.leading)
-    .padding(8).background(AppTheme.bg2.opacity(0.6)).cornerRadius(10)
+    .padding(8).background(AppTheme.bg2.opacity(0.6)).cornerRadius(AppTheme.cornerM)
 }
 
 @ViewBuilder func kwRow(icon:String, color:Color, label:String, kws:[String]) -> some View {
@@ -6180,7 +6180,7 @@ extension View {
             ForEach(kws,id:\.self) { kw in
                 Text(kw).font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(color)
                     .padding(.horizontal,5).padding(.vertical,2)
-                    .background(color.opacity(0.1)).cornerRadius(8)
+                    .background(color.opacity(0.1)).cornerRadius(AppTheme.cornerS)
             }
         }
     }
@@ -6237,7 +6237,7 @@ struct AISummaryCard: View {
                     Text(line).font(.system(size: DSTSize.body, weight: .regular, design:.rounded)).misty(.secondary).lineSpacing(4)
                 }
             }
-        }.padding(16).background(AppTheme.bg1).cornerRadius(16)
+        }.padding(16).background(AppTheme.bg1).cornerRadius(AppTheme.cornerL)
         .overlay(RoundedRectangle(cornerRadius:16).stroke(AppTheme.accent.opacity(0.12),lineWidth:1))
     }
 }
@@ -6258,10 +6258,10 @@ struct LowCompletionCard: View {
                 ZStack(alignment:.topLeading){
                     if reason.isEmpty{Text(store.t(key: L10n.reasonPlaceholder)).foregroundColor(AppTheme.textTertiary).font(.subheadline).padding(.horizontal,12).padding(.vertical,10)}
                     TextEditor(text:$reason).frame(minHeight:60).padding(8).scrollContentBackground(.hidden).foregroundColor(AppTheme.textPrimary).font(.subheadline)
-                }.background(AppTheme.bg2).cornerRadius(10).overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border1,lineWidth:1))
-                Button(store.t(key: L10n.save)){show=false}.frame(maxWidth:.infinity).padding(.vertical,9).background(AppTheme.accent).cornerRadius(10).foregroundColor(AppTheme.bg0).fontWeight(.medium)
+                }.background(AppTheme.bg2).cornerRadius(AppTheme.cornerM).overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border1,lineWidth:1))
+                Button(store.t(key: L10n.save)){show=false}.frame(maxWidth:.infinity).padding(.vertical,9).background(AppTheme.accent).cornerRadius(AppTheme.cornerM).foregroundColor(AppTheme.bg0).fontWeight(.medium)
             }
-        }.padding(13).background(AppTheme.danger.opacity(0.06)).cornerRadius(12).overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.danger.opacity(0.2),lineWidth:1))
+        }.padding(13).background(AppTheme.danger.opacity(0.06)).cornerRadius(AppTheme.cornerM).overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.danger.opacity(0.2),lineWidth:1))
     }
 }
 
@@ -6767,7 +6767,7 @@ struct MetricTile: View {
                             ForEach(items, id:\.self) { kw in
                                 Text(kw).font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(color.opacity(0.9))
                                     .padding(.horizontal,7).padding(.vertical,3)
-                                    .background(color.opacity(0.1)).cornerRadius(12)
+                                    .background(color.opacity(0.1)).cornerRadius(AppTheme.cornerM)
                             }
                         }
                     }
@@ -7073,7 +7073,7 @@ struct MonthlyDigestCard: View {
                         Text("\(resolved)/\(unresolved.count + resolved)").font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(AppTheme.gold)
                     }
                     .padding(.horizontal,7).padding(.vertical,3)
-                    .background(AppTheme.gold.opacity(0.08)).cornerRadius(6)
+                    .background(AppTheme.gold.opacity(0.08)).cornerRadius(AppTheme.cornerS)
                 }
             }
 
@@ -7146,7 +7146,7 @@ struct MonthlyDigestCard: View {
                                                 }
                                                 .padding(.horizontal,10).padding(.vertical,5)
                                                 .background(solved ? AppTheme.accent.opacity(0.05) : AppTheme.gold.opacity(0.06))
-                                                .cornerRadius(8)
+                                                .cornerRadius(AppTheme.cornerS)
                                             }
                                         }
                                     }
@@ -7182,7 +7182,7 @@ struct MonthlyDigestCard: View {
                 ForEach(kws, id:\.self) { kw in
                     Text(kw).font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(color)
                         .padding(.horizontal,5).padding(.vertical,2)
-                        .background(color.opacity(0.1)).cornerRadius(9)
+                        .background(color.opacity(0.1)).cornerRadius(AppTheme.cornerS)
                 }
             }
         }
@@ -7212,7 +7212,7 @@ struct YearlyDigestCard: View {
                         let resolvedCnt = store.periodSummary(type:2, label:yearLabel)?.resolvedChallenges.count ?? 0
                         Text("\(resolvedCnt)/\(unresolved.count + resolvedCnt)").font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(AppTheme.gold)
                     }
-                    .padding(.horizontal,7).padding(.vertical,3).background(AppTheme.gold.opacity(0.08)).cornerRadius(6)
+                    .padding(.horizontal,7).padding(.vertical,3).background(AppTheme.gold.opacity(0.08)).cornerRadius(AppTheme.cornerS)
                 }
             }
 
@@ -7285,7 +7285,7 @@ struct YearlyDigestCard: View {
                                                 }
                                                 .padding(.horizontal,10).padding(.vertical,5)
                                                 .background(solved ? AppTheme.accent.opacity(0.05) : AppTheme.gold.opacity(0.06))
-                                                .cornerRadius(8)
+                                                .cornerRadius(AppTheme.cornerS)
                                             }
                                         }
                                     }
@@ -7321,7 +7321,7 @@ struct YearlyDigestCard: View {
                 ForEach(kws, id:\.self) { kw in
                     Text(kw).font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(color)
                         .padding(.horizontal,5).padding(.vertical,2)
-                        .background(color.opacity(0.1)).cornerRadius(9)
+                        .background(color.opacity(0.1)).cornerRadius(AppTheme.cornerS)
                 }
             }
         }
@@ -7374,7 +7374,7 @@ struct DebugDateRow: View {
                         }
                         .font(.system(size: DSTSize.caption, weight: .regular, design:.rounded)).misty(.tertiary)
                         .padding(.horizontal,12).padding(.vertical,6)
-                        .background(AppTheme.bg2).cornerRadius(8)
+                        .background(AppTheme.bg2).cornerRadius(AppTheme.cornerS)
                         Spacer()
                         Button(store.t(key: L10n.confirm)) {
                             withAnimation { showPicker = false }
@@ -7382,7 +7382,7 @@ struct DebugDateRow: View {
                         .font(.caption).fontWeight(.semibold)
                         .foregroundColor(AppTheme.bg0)
                         .padding(.horizontal,14).padding(.vertical,6)
-                        .background(AppTheme.accent).cornerRadius(8)
+                        .background(AppTheme.accent).cornerRadius(AppTheme.cornerS)
                     }
                 }.padding(.top,6)
                 .transition(.opacity.combined(with:.move(edge:.top)))
@@ -7527,7 +7527,7 @@ struct WeeklyDigestCard: View {
                                                 }
                                                 .padding(.horizontal,10).padding(.vertical,5)
                                                 .background(solved ? AppTheme.accent.opacity(0.05) : AppTheme.gold.opacity(0.06))
-                                                .cornerRadius(8)
+                                                .cornerRadius(AppTheme.cornerS)
                                             }
                                         }
                                     }
@@ -7561,7 +7561,7 @@ struct WeeklyDigestCard: View {
                 ForEach(kws,id:\.self) { kw in
                     Text(kw).font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(color)
                         .padding(.horizontal,6).padding(.vertical,2)
-                        .background(color.opacity(0.1)).cornerRadius(10)
+                        .background(color.opacity(0.1)).cornerRadius(AppTheme.cornerM)
                 }
             }
         }
@@ -7795,8 +7795,8 @@ struct PeriodSummaryCard: View {
                     .transition(.opacity.combined(with:.move(edge:.top)))
                 }
             }
-            .padding(10).background(AppTheme.gold.opacity(0.05)).cornerRadius(10)
-            .overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.gold.opacity(0.12),lineWidth:1))
+            .padding(10).background(AppTheme.gold.opacity(0.05)).cornerRadius(AppTheme.cornerM)
+            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.gold.opacity(0.12),lineWidth:1))
         }
     }
 
@@ -7849,8 +7849,8 @@ struct PeriodSummaryCard: View {
                 }
                 .foregroundColor(AppTheme.accent)
                 .padding(.horizontal,10).padding(.vertical,5)
-                .background(AppTheme.accent.opacity(0.09)).cornerRadius(8)
-                .overlay(RoundedRectangle(cornerRadius:8).stroke(AppTheme.accent.opacity(0.20),lineWidth:0.5))
+                .background(AppTheme.accent.opacity(0.09)).cornerRadius(AppTheme.cornerS)
+                .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(AppTheme.accent.opacity(0.20),lineWidth:0.5))
             }
         }
     }
@@ -7864,8 +7864,8 @@ struct PeriodSummaryCard: View {
                     ForEach(1...5, id:\.self) { i in
                         Button(action:{draftMood=i}) {
                             Text(emojis[i-1]).font(.title2).frame(maxWidth:.infinity).padding(.vertical,7)
-                                .background(draftMood==i ? AppTheme.accent.opacity(0.15):AppTheme.bg2).cornerRadius(9)
-                                .overlay(RoundedRectangle(cornerRadius:9).stroke(draftMood==i ? AppTheme.accent.opacity(0.5):AppTheme.border0,lineWidth:1))
+                                .background(draftMood==i ? AppTheme.accent.opacity(0.15):AppTheme.bg2).cornerRadius(AppTheme.cornerS)
+                                .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(draftMood==i ? AppTheme.accent.opacity(0.5):AppTheme.border0,lineWidth:1))
                         }.animation(.spring(response:0.2),value:draftMood)
                     }
                 }
@@ -7898,7 +7898,7 @@ struct PeriodSummaryCard: View {
                             .font(.caption).fontWeight(.semibold)
                     }
                     .padding(.horizontal,14).padding(.vertical,7)
-                    .background(AppTheme.accent).cornerRadius(10)
+                    .background(AppTheme.accent).cornerRadius(AppTheme.cornerM)
                     .foregroundColor(AppTheme.bg0)
                 }
             }
@@ -7922,8 +7922,8 @@ struct PeriodSummaryCard: View {
             }
             .padding(14)
             .background(AppTheme.accent.opacity(0.04))
-            .cornerRadius(12)
-            .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.accent.opacity(0.10),lineWidth:0.7))
+            .cornerRadius(AppTheme.cornerM)
+            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.accent.opacity(0.10),lineWidth:0.7))
         }
     }
 
@@ -7945,7 +7945,7 @@ struct PeriodSummaryCard: View {
                             .foregroundColor(color.opacity(0.88))
                             .padding(.horizontal,7).padding(.vertical,3)
                             .background(color.opacity(0.09))
-                            .cornerRadius(10)
+                            .cornerRadius(AppTheme.cornerM)
                     }
                 }
             }
@@ -7972,7 +7972,7 @@ struct PeriodSummaryCard: View {
                 .font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(solved ? AppTheme.accent : AppTheme.gold)
         }
         .padding(.horizontal,10).padding(.vertical,5)
-        .background(solved ? AppTheme.accent.opacity(0.05) : AppTheme.gold.opacity(0.05)).cornerRadius(8)
+        .background(solved ? AppTheme.accent.opacity(0.05) : AppTheme.gold.opacity(0.05)).cornerRadius(AppTheme.cornerS)
     }
 }
 
@@ -8018,13 +8018,13 @@ struct ChallengeKeywordSection: View {
         }
         .padding(12)
         .background(ZStack {
-            RoundedRectangle(cornerRadius:14).fill(AppTheme.bg2)
-            RoundedRectangle(cornerRadius:14)
+            RoundedRectangle(cornerRadius:AppTheme.cornerL).fill(AppTheme.bg2)
+            RoundedRectangle(cornerRadius:AppTheme.cornerL)
                 .fill(LinearGradient(colors:[color.opacity(0.04),Color.clear],
                                      startPoint:.topLeading, endPoint:.bottomTrailing))
         })
-        .cornerRadius(14)
-        .overlay(RoundedRectangle(cornerRadius:14).stroke(color.opacity(0.15),lineWidth:1))
+        .cornerRadius(AppTheme.cornerL)
+        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerL).stroke(color.opacity(0.15),lineWidth:1))
     }
 
     @ViewBuilder var headerRow: some View {
@@ -8097,12 +8097,12 @@ struct ChallengeKeywordSection: View {
                 .focused($inputFocused)
                 .onSubmit { addKW() }
                 .padding(.horizontal,11).padding(.vertical,9)
-                .background(AppTheme.bg2).cornerRadius(9)
-                .overlay(RoundedRectangle(cornerRadius:9).stroke(inputFocused ? color.opacity(0.4) : AppTheme.border1, lineWidth:1))
+                .background(AppTheme.bg2).cornerRadius(AppTheme.cornerS)
+                .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(inputFocused ? color.opacity(0.4) : AppTheme.border1, lineWidth:1))
             if !inputText.isEmpty {
                 Button(action:addKW) {
                     Image(systemName:"return").font(.caption).foregroundColor(color)
-                        .frame(width:34,height:34).background(color.opacity(0.12)).cornerRadius(9)
+                        .frame(width:AppTheme.tapMin,height:AppTheme.tapMin).background(color.opacity(0.12)).cornerRadius(AppTheme.cornerS)
                 }
             }
         }
@@ -8212,12 +8212,12 @@ struct UnifiedChallengeSection: View {
                     .focused($inputFocused)
                     .onSubmit { addKW() }
                     .padding(.horizontal,11).padding(.vertical,9)
-                    .background(AppTheme.bg2).cornerRadius(9)
-                    .overlay(RoundedRectangle(cornerRadius:9).stroke(inputFocused ? AppTheme.gold.opacity(0.4) : AppTheme.border1,lineWidth:1))
+                    .background(AppTheme.bg2).cornerRadius(AppTheme.cornerS)
+                    .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(inputFocused ? AppTheme.gold.opacity(0.4) : AppTheme.border1,lineWidth:1))
                 if !inputText.isEmpty {
                     Button(action:addKW) {
                         Image(systemName:"return").font(.caption).foregroundColor(AppTheme.gold)
-                            .frame(width:34,height:34).background(AppTheme.gold.opacity(0.12)).cornerRadius(9)
+                            .frame(width:34,height:34).background(AppTheme.gold.opacity(0.12)).cornerRadius(AppTheme.cornerS)
                     }
                 }
             }
@@ -8269,7 +8269,7 @@ struct PeriodKeywordField: View {
                     }
                     .foregroundColor(showDetail ? color : AppTheme.textTertiary)
                     .padding(.horizontal,7).padding(.vertical,3)
-                    .background(showDetail ? color.opacity(0.12) : AppTheme.bg2).cornerRadius(6)
+                    .background(showDetail ? color.opacity(0.12) : AppTheme.bg2).cornerRadius(AppTheme.cornerS)
                 }
             }
 
@@ -8299,12 +8299,12 @@ struct PeriodKeywordField: View {
                     .focused($focused)
                     .onSubmit { addKW() }
                     .padding(.horizontal,11).padding(.vertical,9)
-                    .background(AppTheme.bg2).cornerRadius(9)
-                    .overlay(RoundedRectangle(cornerRadius:9).stroke(focused ? color.opacity(0.4) : AppTheme.border1, lineWidth:1))
+                    .background(AppTheme.bg2).cornerRadius(AppTheme.cornerS)
+                    .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(focused ? color.opacity(0.4) : AppTheme.border1, lineWidth:1))
                 if !input.isEmpty {
                     Button(action:addKW) {
                         Image(systemName:"return").font(.caption).foregroundColor(color)
-                            .frame(width:34,height:34).background(color.opacity(0.12)).cornerRadius(9)
+                            .frame(width:AppTheme.tapMin,height:AppTheme.tapMin).background(color.opacity(0.12)).cornerRadius(AppTheme.cornerS)
                     }
                 }
             }
@@ -8325,8 +8325,8 @@ struct PeriodKeywordField: View {
                         .frame(minHeight:52).padding(4).scrollContentBackground(.hidden)
                         .foregroundColor(AppTheme.textPrimary).font(.caption)
                 }
-                .background(AppTheme.bg2).cornerRadius(9)
-                .overlay(RoundedRectangle(cornerRadius:9).stroke(AppTheme.border1,lineWidth:1))
+                .background(AppTheme.bg2).cornerRadius(AppTheme.cornerS)
+                .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(AppTheme.border1,lineWidth:1))
                 .transition(.opacity.combined(with:.move(edge:.top)))
             }
         }
@@ -8474,12 +8474,12 @@ struct OverviewTab: View {
                         .foregroundColor(granularity==i ? .white : AppTheme.textTertiary)
                         .frame(maxWidth:.infinity).padding(.vertical,8)
                         .background(granularity==i ? AppTheme.accent : Color.clear)
-                        .cornerRadius(8)
+                        .cornerRadius(AppTheme.cornerS)
                 }
             }
         }
-        .background(AppTheme.bg2).cornerRadius(10)
-        .overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border0,lineWidth:1))
+        .background(AppTheme.bg2).cornerRadius(AppTheme.cornerM)
+        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border0,lineWidth:1))
     }
 
     @ViewBuilder var periodNav: some View {
@@ -8504,8 +8504,8 @@ struct OverviewTab: View {
                         .frame(width:44,height:36)
                 }
             }
-            .background(AppTheme.bg1).cornerRadius(10)
-            .overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border0,lineWidth:1))
+            .background(AppTheme.bg1).cornerRadius(AppTheme.cornerM)
+            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border0,lineWidth:1))
             .padding(.horizontal,16)
         case 1:  // 周
             VStack(spacing:4) {
@@ -8532,7 +8532,7 @@ struct OverviewTab: View {
                             .foregroundColor(sel.wrappedValue==i ? AppTheme.accent : AppTheme.textSecondary)
                             .padding(.horizontal,10).padding(.vertical,5)
                             .background(sel.wrappedValue==i ? AppTheme.accent.opacity(0.12) : AppTheme.bg2)
-                            .cornerRadius(7)
+                            .cornerRadius(AppTheme.cornerS)
                             .overlay(sel.wrappedValue==i ?
                                 RoundedRectangle(cornerRadius:7).stroke(AppTheme.accent.opacity(0.35),lineWidth:1) : nil)
                     }
@@ -8682,7 +8682,7 @@ struct OverviewTab: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
         .background(level.color.opacity(0.06))
-        .cornerRadius(12)
+        .cornerRadius(AppTheme.cornerM)
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(level.color.opacity(0.18), lineWidth: 0.8))
     }
 
@@ -8696,8 +8696,8 @@ struct OverviewTab: View {
             Text(label).font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(AppTheme.textTertiary)
         }
         .frame(maxWidth:.infinity, alignment:.leading)
-        .padding(12).background(AppTheme.bg1).cornerRadius(12)
-        .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1))
+        .padding(12).background(AppTheme.bg1).cornerRadius(AppTheme.cornerM)
+        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border0,lineWidth:1))
     }
 
     @ViewBuilder func moodBarChart(dist:[Int:Int]) -> some View {
@@ -8730,8 +8730,8 @@ struct OverviewTab: View {
                 Spacer()
             }
         }
-        .padding(10).background(AppTheme.bg1).cornerRadius(12)
-        .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1))
+        .padding(10).background(AppTheme.bg1).cornerRadius(AppTheme.cornerM)
+        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border0,lineWidth:1))
     }
 
     @ViewBuilder func kwCloud(icon:String, color:Color, label:String, kws:[String]) -> some View {
@@ -8748,8 +8748,8 @@ struct OverviewTab: View {
                 }
             }
         }
-        .padding(12).background(AppTheme.bg1).cornerRadius(12)
-        .overlay(RoundedRectangle(cornerRadius:12).stroke(color.opacity(0.2),lineWidth:1))
+        .padding(12).background(AppTheme.bg1).cornerRadius(AppTheme.cornerM)
+        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(color.opacity(0.2),lineWidth:1))
     }
 }
 
@@ -8818,11 +8818,11 @@ struct InsightTab: View {
                         .foregroundColor(granularity==i ? AppTheme.accent : AppTheme.textTertiary)
                         .frame(maxWidth:.infinity).padding(.vertical,8)
                         .background(granularity==i ? AppTheme.accent.opacity(0.12) : Color.clear)
-                }.cornerRadius(8)
+                }.cornerRadius(AppTheme.cornerS)
             }
         }
-        .background(AppTheme.bg2).cornerRadius(10)
-        .overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border0,lineWidth:1))
+        .background(AppTheme.bg2).cornerRadius(AppTheme.cornerM)
+        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border0,lineWidth:1))
     }
 
     @ViewBuilder var inPeriodNav: some View {
@@ -8843,8 +8843,8 @@ struct InsightTab: View {
                         .frame(width:44,height:36)
                 }
             }
-            .background(AppTheme.bg1).cornerRadius(10)
-            .overlay(RoundedRectangle(cornerRadius:10).stroke(AppTheme.border0,lineWidth:1))
+            .background(AppTheme.bg1).cornerRadius(AppTheme.cornerM)
+            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border0,lineWidth:1))
             .padding(.horizontal,16)
         case 1:  // 周
             VStack(spacing:4) {
@@ -8871,7 +8871,7 @@ struct InsightTab: View {
                             .foregroundColor(sel.wrappedValue==i ? AppTheme.accent : AppTheme.textSecondary)
                             .padding(.horizontal,10).padding(.vertical,5)
                             .background(sel.wrappedValue==i ? AppTheme.accent.opacity(0.12) : AppTheme.bg2)
-                            .cornerRadius(7)
+                            .cornerRadius(AppTheme.cornerS)
                     }
                 }
             }.padding(.horizontal,16)
@@ -9031,7 +9031,7 @@ struct InsightTab: View {
                             .font(.system(size:DSTSize.caption,weight:.bold,design:.rounded))
                             .foregroundColor(s.color)
                             .padding(.horizontal,6).padding(.vertical,2)
-                            .background(s.color.opacity(0.12)).cornerRadius(5)
+                            .background(s.color.opacity(0.12)).cornerRadius(AppTheme.cornerS)
                         // Active days
                         HStack(spacing:3) {
                             Image(systemName:"calendar").font(.system(size:DSTSize.nano, weight:.regular, design:.rounded))
@@ -9081,8 +9081,8 @@ struct InsightTab: View {
                 }
             }.frame(height:3)
         }
-        .background(AppTheme.bg1).cornerRadius(14)
-        .overlay(RoundedRectangle(cornerRadius:14)
+        .background(AppTheme.bg1).cornerRadius(AppTheme.cornerL)
+        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerL)
             .stroke(s.avgCompletion >= 1.0 ? s.color.opacity(0.3) : AppTheme.border0, lineWidth:0.8))
         .shadow(color:s.avgCompletion >= 1.0 ? s.color.opacity(0.08) : .clear, radius:6, x:0, y:2)
     }
@@ -9108,12 +9108,12 @@ struct InsightTab: View {
                 Text(j.note)
                     .font(.system(size:DSTSize.caption, weight:.regular, design:.rounded)).foregroundColor(AppTheme.textSecondary)
                     .lineLimit(4).padding(8)
-                    .background(AppTheme.gold.opacity(0.07)).cornerRadius(8)
-                    .overlay(RoundedRectangle(cornerRadius:8)
+                    .background(AppTheme.gold.opacity(0.07)).cornerRadius(AppTheme.cornerS)
+                    .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS)
                         .stroke(AppTheme.gold.opacity(0.18),lineWidth:0.8))
             }
-            .padding(10).background(AppTheme.bg1).cornerRadius(12)
-            .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1))
+            .padding(10).background(AppTheme.bg1).cornerRadius(AppTheme.cornerM)
+            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border0,lineWidth:1))
             .frame(maxWidth:.infinity)
         }
     }
@@ -9151,8 +9151,8 @@ struct InsightTab: View {
                         }
                     }.frame(height:70)
                 }
-                .padding(10).background(AppTheme.bg1).cornerRadius(12)
-                .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1))
+                .padding(10).background(AppTheme.bg1).cornerRadius(AppTheme.cornerM)
+                .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border0,lineWidth:1))
                 if !allE.isEmpty {
                     VStack(alignment:.leading, spacing:8) {
                         Text(store.t(key: L10n.yearHighlights))
@@ -9180,8 +9180,8 @@ struct InsightTab: View {
         }
         .frame(maxWidth:.infinity, minHeight:52, alignment:.leading)
         .padding(.horizontal,12).padding(.vertical,10)
-        .background(AppTheme.bg1).cornerRadius(12)
-        .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1))
+        .background(AppTheme.bg1).cornerRadius(AppTheme.cornerM)
+        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border0,lineWidth:1))
     }
 
     @ViewBuilder func timelineRow(_ e: DailyChallengeEntry) -> some View {
@@ -9204,11 +9204,11 @@ struct InsightTab: View {
                 if !e.resolvedNote.isEmpty {
                     Text(e.resolvedNote).font(.system(size:DSTSize.caption, weight:.regular, design:.rounded)).foregroundColor(AppTheme.textSecondary)
                         .lineLimit(3).padding(8)
-                        .background(AppTheme.accent.opacity(0.06)).cornerRadius(8)
+                        .background(AppTheme.accent.opacity(0.06)).cornerRadius(AppTheme.cornerS)
                 }
             }
-            .padding(10).background(AppTheme.bg1).cornerRadius(12)
-            .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1))
+            .padding(10).background(AppTheme.bg1).cornerRadius(AppTheme.cornerM)
+            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border0,lineWidth:1))
             .frame(maxWidth:.infinity)
         }
     }
@@ -9480,7 +9480,7 @@ struct InsightTab: View {
                             .foregroundColor(AppTheme.textTertiary.opacity(0.55))
                             .padding(.horizontal,8).padding(.vertical,5)
                             .background(AppTheme.bg3)
-                            .cornerRadius(7)
+                            .cornerRadius(AppTheme.cornerS)
                             .overlay(RoundedRectangle(cornerRadius:7)
                                 .stroke(AppTheme.border0,lineWidth:0.7))
                         }
@@ -9493,8 +9493,8 @@ struct InsightTab: View {
                                 .padding(9)
                                 .frame(maxWidth:.infinity, alignment:.leading)
                                 .background(AppTheme.accent.opacity(0.06))
-                                .cornerRadius(9)
-                                .overlay(RoundedRectangle(cornerRadius:9)
+                                .cornerRadius(AppTheme.cornerS)
+                                .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS)
                                     .stroke(AppTheme.accent.opacity(0.15),lineWidth:0.8))
                             Button(action:{
                                 editingChallengeId = e.id
@@ -9541,8 +9541,8 @@ struct InsightTab: View {
                         .font(.system(size:DSTSize.label, weight:.medium, design:.rounded)).foregroundColor(AppTheme.textPrimary)
                         .padding(10)
                         .background(AppTheme.bg1)
-                        .cornerRadius(12)
-                        .overlay(RoundedRectangle(cornerRadius:12).stroke(AppTheme.border0,lineWidth:1))
+                        .cornerRadius(AppTheme.cornerM)
+                        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(AppTheme.border0,lineWidth:1))
                         .frame(minHeight:120, maxHeight:200)
                     if challengeNoteInput.isEmpty {
                         Text(store.t(zh:"写下你的解决心得…", en:"Write your insight…", ja:"気づきを記入…", ko:"인사이트를 입력…", es:"Escribe tu insight…"))
@@ -9716,12 +9716,12 @@ struct GoalAchievementTab: View {
                         .foregroundColor(period==i ? .white : AppTheme.textTertiary)
                         .frame(maxWidth:.infinity).padding(.vertical,7)
                         .background(period==i ? AppTheme.accent : Color.clear)
-                        .cornerRadius(7)
+                        .cornerRadius(AppTheme.cornerS)
                 }
             }
         }
-        .background(AppTheme.bg2).cornerRadius(9)
-        .overlay(RoundedRectangle(cornerRadius:9).stroke(AppTheme.border0, lineWidth:1))
+        .background(AppTheme.bg2).cornerRadius(AppTheme.cornerS)
+        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(AppTheme.border0, lineWidth:1))
     }
 
     @ViewBuilder var periodStatRow: some View {
@@ -9757,8 +9757,8 @@ struct GoalAchievementTab: View {
         .frame(maxWidth:.infinity)
         .padding(.vertical,10)
         .background(color.opacity(0.07))
-        .cornerRadius(12)
-        .overlay(RoundedRectangle(cornerRadius:12).stroke(color.opacity(0.18), lineWidth:0.8))
+        .cornerRadius(AppTheme.cornerM)
+        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(color.opacity(0.18), lineWidth:0.8))
     }
 
     @ViewBuilder var badgesSection: some View {
@@ -9783,8 +9783,8 @@ struct GoalAchievementTab: View {
                     badgeRuleRow(level:.year)
                 }
             }
-            .padding(12).background(AppTheme.bg1).cornerRadius(14)
-            .overlay(RoundedRectangle(cornerRadius:14).stroke(AppTheme.border0, lineWidth:0.8))
+            .padding(12).background(AppTheme.bg1).cornerRadius(AppTheme.cornerL)
+            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerL).stroke(AppTheme.border0, lineWidth:0.8))
         } else {
             VStack(alignment:.leading, spacing:10) {
                 HStack(spacing:5) {
@@ -9817,8 +9817,8 @@ struct GoalAchievementTab: View {
                     }
                 }
             }
-            .padding(12).background(AppTheme.bg1).cornerRadius(14)
-            .overlay(RoundedRectangle(cornerRadius:14).stroke(AppTheme.gold.opacity(0.18), lineWidth:1))
+            .padding(12).background(AppTheme.bg1).cornerRadius(AppTheme.cornerL)
+            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerL).stroke(AppTheme.gold.opacity(0.18), lineWidth:1))
         }
     }
 
@@ -10033,8 +10033,8 @@ struct GoalAchievementTab: View {
                                             .font(.system(size:DSTSize.caption, weight:.regular, design:.rounded)).foregroundColor(AppTheme.textSecondary)
                                             .lineLimit(4).padding(8)
                                             .frame(maxWidth:.infinity, alignment:.leading)
-                                            .background(AppTheme.gold.opacity(0.06)).cornerRadius(8)
-                                            .overlay(RoundedRectangle(cornerRadius:8).stroke(AppTheme.gold.opacity(0.15), lineWidth:0.8))
+                                            .background(AppTheme.gold.opacity(0.06)).cornerRadius(AppTheme.cornerS)
+                                            .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(AppTheme.gold.opacity(0.15), lineWidth:0.8))
                                     }
                                 }
                             }
@@ -10046,8 +10046,8 @@ struct GoalAchievementTab: View {
             }
         }
         .background(AppTheme.bg1)
-        .clipShape(RoundedRectangle(cornerRadius:14))
-        .overlay(RoundedRectangle(cornerRadius:14)
+        .clipShape(RoundedRectangle(cornerRadius:AppTheme.cornerL))
+        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerL)
             .stroke(avg >= 1.0 ? goal.color.opacity(0.3) : AppTheme.border0, lineWidth:0.8))
         .shadow(color:avg >= 1.0 ? goal.color.opacity(0.08) : .black.opacity(0.08), radius:6, x:0, y:2)
     }
@@ -10135,8 +10135,8 @@ struct HistoryKWTab: View {
                 }
             }
         }
-        .padding(12).background(AppTheme.bg1).cornerRadius(14)
-        .overlay(RoundedRectangle(cornerRadius:14).stroke(color.opacity(0.2),lineWidth:1))
+        .padding(12).background(AppTheme.bg1).cornerRadius(AppTheme.cornerL)
+        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerL).stroke(color.opacity(0.2),lineWidth:1))
     }
 
     @ViewBuilder func yearBlock(_ ye: GrowthYearEntry) -> some View {
@@ -10155,7 +10155,7 @@ struct HistoryKWTab: View {
                             ForEach(kws.prefix(4), id:\.self) { kw in
                                 Text(kw).font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(color.opacity(0.7))
                                     .padding(.horizontal,5).padding(.vertical,2)
-                                    .background(color.opacity(0.08)).cornerRadius(8)
+                                    .background(color.opacity(0.08)).cornerRadius(AppTheme.cornerS)
                             }
                             if kws.count>4 {
                                 Text("+\(kws.count-4)").font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(AppTheme.textTertiary)
@@ -10204,7 +10204,7 @@ struct HistoryKWTab: View {
                                 ForEach(kws, id:\.self) { kw in
                                     Text(kw).font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(color)
                                         .padding(.horizontal,7).padding(.vertical,3)
-                                        .background(color.opacity(0.1)).cornerRadius(12)
+                                        .background(color.opacity(0.1)).cornerRadius(AppTheme.cornerM)
                                 }
                             }.padding(.horizontal,16).padding(.top,6)
                         }
@@ -10246,7 +10246,7 @@ struct HistoryKWTab: View {
                                 ForEach(kws, id:\.self) { kw in
                                     Text(kw).font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(color)
                                         .padding(.horizontal,6).padding(.vertical,2)
-                                        .background(color.opacity(0.1)).cornerRadius(10)
+                                        .background(color.opacity(0.1)).cornerRadius(AppTheme.cornerM)
                                 }
                             }.padding(.horizontal,16).padding(.top,4)
                         }
@@ -10269,13 +10269,13 @@ struct HistoryKWTab: View {
                     ForEach(kws, id:\.self) { kw in
                         Text(kw).font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(color)
                             .padding(.horizontal,6).padding(.vertical,2)
-                            .background(color.opacity(0.1)).cornerRadius(10)
+                            .background(color.opacity(0.1)).cornerRadius(AppTheme.cornerM)
                     }
                 }
                 Spacer()
                 Button(action:{ openEdit(date:de.date) }) {
                     Image(systemName:"pencil").font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(AppTheme.textTertiary)
-                        .padding(5).background(AppTheme.bg2).cornerRadius(6)
+                        .padding(5).background(AppTheme.bg2).cornerRadius(AppTheme.cornerS)
                 }
             }
             .padding(.horizontal,16).padding(.vertical,4)
@@ -10292,7 +10292,7 @@ struct HistoryKWTab: View {
                 .font(.system(size:DSTSize.cardMicro, weight:.semibold, design:.rounded))
                 .foregroundColor(color)
                 .padding(.horizontal,5).padding(.vertical,2)
-                .background(color.opacity(0.12)).cornerRadius(6)
+                .background(color.opacity(0.12)).cornerRadius(AppTheme.cornerS)
         }
     }
 
@@ -10314,13 +10314,13 @@ struct HistoryKWTab: View {
                                 Image(systemName:"xmark").font(.system(size:DSTSize.micro, weight:.regular, design:.rounded)).foregroundColor(AppTheme.textTertiary)
                             }
                         }
-                        .padding(.horizontal,8).padding(.vertical,4).background(color.opacity(0.1)).cornerRadius(12)
+                        .padding(.horizontal,8).padding(.vertical,4).background(color.opacity(0.1)).cornerRadius(AppTheme.cornerM)
                     }
                 }.padding(.horizontal,16)
                 HStack {
                     TextField(store.t(key: L10n.newKeyword), text:$editInput)
                         .focused($editFocused).font(.system(size:DSTSize.label, weight:.medium, design:.rounded))
-                        .padding(10).background(AppTheme.bg2).cornerRadius(10)
+                        .padding(10).background(AppTheme.bg2).cornerRadius(AppTheme.cornerM)
                     Button(action:{
                         let kw=editInput.trimmingCharacters(in:.whitespaces)
                         if !kw.isEmpty && !editKWs.contains(kw) { editKWs.append(kw) }
@@ -10452,8 +10452,8 @@ struct SmartSummarySheet: View {
                         .frame(maxWidth:.infinity)
                         .padding(.vertical,14)
                         .background(AppTheme.bg1)
-                        .cornerRadius(14)
-                        .overlay(RoundedRectangle(cornerRadius:14).stroke(AppTheme.border0, lineWidth:1))
+                        .cornerRadius(AppTheme.cornerL)
+                        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerL).stroke(AppTheme.border0, lineWidth:1))
 
                         // 完成率
                         VStack(spacing:4) {
@@ -10467,8 +10467,8 @@ struct SmartSummarySheet: View {
                         .frame(maxWidth:.infinity)
                         .padding(.vertical,14)
                         .background(AppTheme.bg1)
-                        .cornerRadius(14)
-                        .overlay(RoundedRectangle(cornerRadius:14).stroke(AppTheme.border0, lineWidth:1))
+                        .cornerRadius(AppTheme.cornerL)
+                        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerL).stroke(AppTheme.border0, lineWidth:1))
                     }
                     .padding(.horizontal,16)
 
@@ -10495,8 +10495,8 @@ struct SmartSummarySheet: View {
                         }
                     }
                     .background(AppTheme.bg1)
-                    .cornerRadius(14)
-                    .overlay(RoundedRectangle(cornerRadius:14).stroke(AppTheme.border0, lineWidth:1))
+                    .cornerRadius(AppTheme.cornerL)
+                    .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerL).stroke(AppTheme.border0, lineWidth:1))
                     .padding(.horizontal,16)
 
                     // ── 收获词云 ────────────────────────────
@@ -10625,15 +10625,15 @@ struct SmartSummarySheet: View {
                                 .padding(.horizontal,12).padding(.vertical,7)
                                 .frame(maxWidth:.infinity)
                                 .background(AppTheme.gold.opacity(0.09))
-                                .cornerRadius(8)
-                                .overlay(RoundedRectangle(cornerRadius:8).stroke(AppTheme.gold.opacity(0.22), lineWidth:1))
+                                .cornerRadius(AppTheme.cornerS)
+                                .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerS).stroke(AppTheme.gold.opacity(0.22), lineWidth:1))
                             }
                             .padding(.horizontal,12).padding(.bottom,10)
                         }
                     }
                     .background(AppTheme.bg1)
-                    .cornerRadius(14)
-                    .overlay(RoundedRectangle(cornerRadius:14)
+                    .cornerRadius(AppTheme.cornerL)
+                    .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerL)
                         .stroke(AppTheme.accent.opacity(0.14), lineWidth:0.8))
                     .padding(.horizontal,16)
 
@@ -10694,8 +10694,8 @@ struct SmartSummarySheet: View {
         }
         .padding(12)
         .background(AppTheme.bg1)
-        .cornerRadius(14)
-        .overlay(RoundedRectangle(cornerRadius:14).stroke(col.opacity(0.15), lineWidth:1))
+        .cornerRadius(AppTheme.cornerL)
+        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerL).stroke(col.opacity(0.15), lineWidth:1))
         .padding(.horizontal,16)
     }
 }
@@ -10711,7 +10711,7 @@ struct JournalEntryCard: View {
             }
             if !entry.journalGains.isEmpty{JSnippet(icon:"star.fill",color:AppTheme.accent,label:store.t(key: L10n.winsShort),text:entry.journalGains)}
             if !entry.journalChallenges.isEmpty{JSnippet(icon:"exclamationmark.triangle.fill",color:AppTheme.gold,label:store.t(key: L10n.pending),text:entry.journalChallenges)}
-        }.padding(14).background(AppTheme.bg1).cornerRadius(14).overlay(RoundedRectangle(cornerRadius:14).stroke(AppTheme.border0,lineWidth:1))
+        }.padding(14).background(AppTheme.bg1).cornerRadius(AppTheme.cornerL).overlay(RoundedRectangle(cornerRadius:AppTheme.cornerL).stroke(AppTheme.border0,lineWidth:1))
     }
 }
 
@@ -10811,7 +10811,7 @@ struct InspireView: View {
                                                 .padding(.horizontal, 14).padding(.vertical, 7)
                                                 .background(showOnline ? AppTheme.accent : Color.clear)
                                                 .foregroundColor(showOnline ? .black : Color.white.opacity(0.65))
-                                                .cornerRadius(8)
+                                                .cornerRadius(AppTheme.cornerS)
                                         }
                                         Button(action:{ withAnimation(.spring(response:0.25)){ showOnline=false }}) {
                                             Text(store.t(key: L10n.inspireClassic))
@@ -10819,11 +10819,11 @@ struct InspireView: View {
                                                 .padding(.horizontal, 14).padding(.vertical, 7)
                                                 .background(!showOnline ? AppTheme.accent : Color.clear)
                                                 .foregroundColor(!showOnline ? .black : Color.white.opacity(0.65))
-                                                .cornerRadius(8)
+                                                .cornerRadius(AppTheme.cornerS)
                                         }
                                     }
                                     .background(Color.white.opacity(0.08))
-                                    .cornerRadius(10)
+                                    .cornerRadius(AppTheme.cornerM)
                                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.12), lineWidth: 0.8))
                                     Spacer()
                                     if isLoadingOnline {
@@ -10930,7 +10930,7 @@ struct InspireView: View {
                                     }
                                     .foregroundColor(AppTheme.gold)
                                     .padding(.horizontal, 14).padding(.vertical, 8)
-                                    .background(AppTheme.gold.opacity(0.10)).cornerRadius(8)
+                                    .background(AppTheme.gold.opacity(0.10)).cornerRadius(AppTheme.cornerS)
                                     .padding(.bottom, 4)
                                 }
 
