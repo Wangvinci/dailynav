@@ -2492,10 +2492,39 @@ struct TodayView: View {
                     ForEach(todayGoals){ goal in TodayGoalSection(goal:goal,store:store,date:today).padding(.horizontal) }
 
                     if todayGoals.isEmpty {
-                        VStack(spacing:8){
-                            Image(systemName:"target").font(.largeTitle).foregroundColor(AppTheme.textTertiary)
-                            Text(store.t(key: L10n.noTasksToday)).font(.system(size: DSTSize.body, weight: .regular, design:.rounded)).misty(.secondary)
-                        }.frame(maxWidth:.infinity).padding(.vertical,36)
+                        VStack(spacing: 18) {
+                            // Layered rings — Streaks-style icon
+                            ZStack {
+                                Circle()
+                                    .stroke(AppTheme.accent.opacity(0.06), lineWidth: 22)
+                                    .frame(width: 96, height: 96)
+                                Circle()
+                                    .stroke(AppTheme.accent.opacity(0.10), lineWidth: 14)
+                                    .frame(width: 66, height: 66)
+                                Image(systemName: "target")
+                                    .font(.system(size: 26, weight: .light))
+                                    .foregroundColor(AppTheme.accent.opacity(0.55))
+                            }
+                            VStack(spacing: 6) {
+                                Text(store.t(zh: "今天还没有目标",
+                                             en: "No goals for today",
+                                             ja: "今日の目標がありません",
+                                             ko: "오늘 목표가 없어요",
+                                             es: "Sin metas para hoy"))
+                                    .font(.system(size: DSTSize.label, weight: .medium, design: .rounded))
+                                    .foregroundColor(AppTheme.textSecondary.opacity(0.75))
+                                Text(store.t(zh: "前往目标页，创建或开启一个目标",
+                                             en: "Go to Goals to create or enable one",
+                                             ja: "目標タブで目標を作成しましょう",
+                                             ko: "목표 탭에서 목표를 만들어 보세요",
+                                             es: "Ve a Metas para crear una"))
+                                    .font(.system(size: DSTSize.caption, weight: .regular, design: .rounded))
+                                    .foregroundColor(AppTheme.textTertiary.opacity(0.55))
+                                    .multilineTextAlignment(.center)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 44)
                     }
 
                     // ── 今日心得（合并版：心情 + 收获 + 困难）──
@@ -2996,6 +3025,7 @@ struct TodayGoalSection: View {
     @EnvironmentObject var storeEnv: AppStore
     @State private var collapsed = true           // default collapsed
     @State private var showJournal = false
+    @State private var goalJustCompleted = false  // drives completion pulse
 
     // Use store.tasks(for:date,goal:) to respect pinnedDate, skips, overrides
     var allTasks: [GoalTask] { storeEnv.tasks(for: date, goal: goal).sorted { $0.priority.rawValue > $1.priority.rawValue } }
@@ -3085,6 +3115,39 @@ struct TodayGoalSection: View {
                                     .font(.system(size:DSTSize.micro, weight:.medium, design:.rounded))
                                     .foregroundColor(goal.color)
                             }
+                            // Current phase chip
+                            if let phase = goal.currentPhase {
+                                Text("·")
+                                    .font(.system(size:DSTSize.micro)).foregroundColor(AppTheme.textTertiary.opacity(0.35))
+                                HStack(spacing:2) {
+                                    Image(systemName:"flag.fill")
+                                        .font(.system(size:6, weight:.regular))
+                                        .foregroundColor(goal.color.opacity(0.55))
+                                    Text(phase.title)
+                                        .font(.system(size:DSTSize.micro, weight:.regular, design:.rounded))
+                                        .foregroundColor(goal.color.opacity(0.65))
+                                        .lineLimit(1)
+                                }
+                            }
+                        }
+                        // Mini task progress pills (visible when collapsed)
+                        if collapsed && !allTasks.isEmpty {
+                            HStack(spacing:3) {
+                                ForEach(Array(allTasks.prefix(12).enumerated()), id:\.offset) { _, task in
+                                    let p = storeEnv.progress(for:date, taskId:task.id)
+                                    let done = p >= 1.0
+                                    RoundedRectangle(cornerRadius:2)
+                                        .fill(done ? goal.color : goal.color.opacity(0.18))
+                                        .frame(width: done ? 14 : 10, height: 4)
+                                        .animation(.spring(response:AppTheme.animQuick, dampingFraction:AppTheme.animDamping), value:done)
+                                }
+                                if allTasks.count > 12 {
+                                    Text("+\(allTasks.count-12)")
+                                        .font(.system(size:7, weight:.regular, design:.rounded))
+                                        .foregroundColor(AppTheme.textTertiary.opacity(0.40))
+                                }
+                            }
+                            .padding(.top, 2)
                         }
                     }
 
@@ -3207,6 +3270,16 @@ struct TodayGoalSection: View {
         .shadow(color: pct >= 1.0 ? goal.color.opacity(0.20) : goal.color.opacity(0.07),
                 radius: pct >= 1.0 ? 14 : 8, x:0, y:3)
         .shadow(color:.black.opacity(0.10), radius:6, x:0, y:2)
+        // Completion pulse: brief scale-up when all tasks just done
+        .scaleEffect(goalJustCompleted ? 1.025 : 1.0)
+        .animation(.spring(response:0.28, dampingFraction:0.55), value:goalJustCompleted)
+        .onChange(of: pct) { old, new in
+            if old < 1.0 && new >= 1.0 {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                goalJustCompleted = true
+                DispatchQueue.main.asyncAfter(deadline:.now() + 0.55) { goalJustCompleted = false }
+            }
+        }
         .sheet(isPresented:$showJournal) {
             GoalJournalEditSheet(
                 date:date, goal:goal, existing:todayJournal
@@ -3252,7 +3325,7 @@ struct TodaySliderRow: View {
                 // Tap-to-toggle done circle — large tap target
                 Button(action:{
                     let newVal = done ? 0.0 : 1.0
-                    let gen = UIImpactFeedbackGenerator(style: .light)
+                    let gen = UIImpactFeedbackGenerator(style: newVal >= 1.0 ? .medium : .light)
                     gen.impactOccurred()
                     commitProgress(newVal)
                 }) {
@@ -3362,6 +3435,29 @@ struct TodaySliderRow: View {
             }
         }
         .animation(.easeInOut(duration:0.18), value:done)
+        .contextMenu {
+            Button(action:{
+                let newVal = done ? 0.0 : 1.0
+                UIImpactFeedbackGenerator(style: newVal >= 1.0 ? .medium : .light).impactOccurred()
+                commitProgress(newVal)
+            }) {
+                Label(done
+                    ? storeEnv.t(zh:"标记未完成", en:"Mark Incomplete", ja:"未完了に戻す", ko:"미완료로 표시", es:"Marcar incompleto")
+                    : storeEnv.t(zh:"标记完成", en:"Mark Complete", ja:"完了にする", ko:"완료로 표시", es:"Marcar completo"),
+                    systemImage: done ? "circle" : "checkmark.circle.fill")
+            }
+            if hasMinutes {
+                Button(action:{ commitProgress(0.5) }) {
+                    Label(storeEnv.t(zh:"设为 50%", en:"Set to 50%", ja:"50%に設定", ko:"50%로 설정", es:"Establecer 50%"),
+                          systemImage:"circle.lefthalf.filled")
+                }
+            }
+            Divider()
+            Button(action:{ commitProgress(0) }) {
+                Label(storeEnv.t(zh:"重置进度", en:"Reset Progress", ja:"リセット", ko:"초기화", es:"Reiniciar"),
+                      systemImage:"arrow.counterclockwise")
+            }
+        }
     }
 }
 
@@ -3376,6 +3472,9 @@ struct TodayDailySummaryCard: View {
     var state: (active: [String], resolved: [String]) { store.dailyChallengeState(for: date) }
     var hasAny: Bool { !state.active.isEmpty || !state.resolved.isEmpty }
     var allKW: [String] { state.active + state.resolved }
+
+    // Best current streak across all goals
+    var currentStreak: Int { store.goals.map { store.currentStreak(for: $0) }.max() ?? 0 }
 
     // 昨日新增（继承自昨天，不是今日新增）
     var inheritedKW: Set<String> {
@@ -3415,6 +3514,22 @@ struct TodayDailySummaryCard: View {
                          total == 0  ? store.t(key: L10n.noTasksYetShort) :
                                        store.t(key: L10n.todayStillYours))
                     .font(.system(size: DSTSize.caption, weight: .regular, design:.rounded)).misty(.tertiary)
+                    // Streak badge — shown when ≥ 2 days
+                    if currentStreak >= 2 {
+                        HStack(spacing: 3) {
+                            Image(systemName: "flame.fill")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(.orange.opacity(0.85))
+                            Text(store.t(zh: "连续 \(currentStreak) 天",
+                                         en: "\(currentStreak)-day streak",
+                                         ja: "\(currentStreak)日連続",
+                                         ko: "\(currentStreak)일 연속",
+                                         es: "\(currentStreak) días seguidos"))
+                                .font(.system(size: DSTSize.micro, weight: .medium, design: .rounded))
+                                .foregroundColor(.orange.opacity(0.80))
+                        }
+                        .transition(.opacity.combined(with:.scale(scale: 0.9)))
+                    }
                 }
                 Spacer()
                 if hasAny {
