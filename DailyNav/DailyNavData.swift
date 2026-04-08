@@ -70,12 +70,24 @@ class ProStore: ObservableObject {
     @Published var showPaywall: Bool = false
     @Published var isLoading: Bool = false
 
+    // ── 老用户认定（首次运行新版时写入 Keychain）─────────────
+    // 已有 userTier 记录 = 老版用户 → 永久 Plus 权限（不受限）
+    @Published private(set) var isLegacyUser: Bool = false
+
+    // ── 有效权限：老用户 Free → 等同 Plus ───────────────────
+    var effectiveTier: UserTier {
+        isLegacyUser && tier == .free ? .plus : tier
+    }
+
     // ── 向后兼容：isPro = Plus 或 Pro 均为 true ──────────────
     var isPro: Bool {
-        get { tier >= .plus }
+        get { effectiveTier >= .plus }
         set { tier = newValue ? .plus : .free }
     }
-    var isProSubscriber: Bool { tier == .pro }
+    var isProSubscriber: Bool { effectiveTier == .pro }
+
+    // ── 新用户：首次启动显示付费墙 ───────────────────────────
+    var needsInitialPaywall: Bool { !isLegacyUser && tier == .free }
 
     // ── 产品 ID（必须与 App Store Connect 中创建的完全一致）──
     // 前缀 = Bundle ID (com.vince.dailynav)
@@ -104,12 +116,22 @@ class ProStore: ObservableObject {
 
     // ── 初始化 ────────────────────────────────────────────────
     init() {
-        // 先从 Keychain 快速恢复（避免启动白屏）
+        // 1. 老用户认定（只需判断一次，结果写入 Keychain 持久化）
+        if let saved = Keychain.read("isLegacyUser") {
+            // 已写入过 → 直接读取
+            isLegacyUser = (saved == "true")
+        } else {
+            // 首次运行新版本：有 userTier 记录 = 老用户
+            let hadPriorSession = Keychain.read("userTier") != nil
+            isLegacyUser = hadPriorSession
+            Keychain.write("isLegacyUser", value: hadPriorSession ? "true" : "false")
+        }
+        // 2. 快速恢复上次 tier（避免启动白屏）
         if let saved = Keychain.read("userTier"),
            let t = UserTier(rawValue: saved) {
             tier = t
         }
-        // 启动后台校验 + 监听
+        // 3. 启动后台校验 + 监听
         transactionListener = listenForTransactions()
         Task { await initialize() }
     }
@@ -148,6 +170,11 @@ class ProStore: ObservableObject {
         }
         // 2. 校验当前 entitlements
         await refreshEntitlements()
+        // 3. 新用户首次启动 → 弹出付费墙
+        if needsInitialPaywall {
+            try? await Task.sleep(nanoseconds: 600_000_000) // 0.6s 等启动动画完成
+            showPaywall = true
+        }
     }
 
     // ── 刷新权益状态 ──────────────────────────────────────────
@@ -228,17 +255,17 @@ class ProStore: ObservableObject {
 
     /// 要求 Plus 或以上才能使用
     func requirePlus(action: @escaping () -> Void) {
-        if tier >= .plus { action() } else { showPaywall = true }
+        if effectiveTier >= .plus { action() } else { showPaywall = true }
     }
 
     /// 要求 Pro 订阅才能使用（AI 功能）
     func requirePro(action: @escaping () -> Void) {
-        if tier >= .pro { action() } else { showPaywall = true }
+        if effectiveTier >= .pro { action() } else { showPaywall = true }
     }
 
     /// 检查是否有某功能的权限
     func hasAccess(to feature: Feature) -> Bool {
-        feature.minimumTier <= tier
+        feature.minimumTier <= effectiveTier
     }
 
     // ── 功能权限定义 ──────────────────────────────────────────
@@ -274,12 +301,12 @@ class ProStore: ObservableObject {
 
     /// 检查目标数量是否超限
     func canAddGoal(currentCount: Int) -> Bool {
-        tier >= .plus || currentCount < Self.freeGoalLimit
+        effectiveTier >= .plus || currentCount < Self.freeGoalLimit
     }
 
     /// 检查任务数量是否超限
     func canAddTask(currentTaskCount: Int) -> Bool {
-        tier >= .plus || currentTaskCount < Self.freeTaskLimit
+        effectiveTier >= .plus || currentTaskCount < Self.freeTaskLimit
     }
 }
 

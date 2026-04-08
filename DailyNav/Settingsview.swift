@@ -10,62 +10,39 @@ struct ProPaywallSheet: View {
     @EnvironmentObject var store: AppStore
     @EnvironmentObject var pro: ProStore
 
-    // ── 颜色常量 ──────────────────────────────────────────────
-    private let plusColor = AppTheme.accent
+    @State private var selectedProPlan: ProPlan = .yearly
+
+    enum ProPlan { case monthly, yearly }
+
+    private let plusColor  = AppTheme.accent
+    private let proColor   = AppTheme.gold
 
     var body: some View {
         NavigationView {
             ScrollView {
-                VStack(spacing: 20) {
+                VStack(spacing: 0) {
 
-                    // ── 顶部标题 ──────────────────────────────
-                    VStack(spacing: 10) {
-                        ZStack {
-                            Circle().fill(plusColor.opacity(0.12)).frame(width: 72, height: 72)
-                            Image(systemName: "star.fill").font(.system(size: 30)).foregroundColor(plusColor)
-                        }.padding(.top, 24)
-                        Text("DailyNav Plus").font(.title2).fontWeight(.bold).foregroundColor(AppTheme.textPrimary)
-                        Text(store.t("一次购买，永久解锁全部功能", "Buy once, unlock everything forever."))
-                            .font(.subheadline).foregroundColor(AppTheme.textSecondary)
-                            .multilineTextAlignment(.center)
-                    }.padding(.horizontal)
+                    // ── Hero ─────────────────────────────────
+                    heroHeader.padding(.bottom, 24)
 
-                    // ── Plus 功能列表 ────────────────────────
-                    plusContent
+                    // ── Plus 买断卡 ───────────────────────────
+                    plusCard.padding(.horizontal).padding(.bottom, 16)
 
-                    // ── Pro 预告（不透露具体功能）──────────
-                    HStack(spacing: 10) {
-                        Image(systemName: "crown.fill").font(.caption).foregroundColor(AppTheme.gold.opacity(0.6))
-                        Text(store.t("Pro 订阅即将推出，敬请期待", "Pro subscription coming soon"))
-                            .font(.caption2).foregroundColor(AppTheme.textTertiary)
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 10)
-                    .background(AppTheme.bg2).cornerRadius(10)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(AppTheme.gold.opacity(0.10), lineWidth: 0.6))
-                    .padding(.horizontal)
+                    // ── 分隔线 ─────────────────────────────────
+                    HStack {
+                        Rectangle().fill(AppTheme.border0).frame(height: 0.5)
+                        Text(store.t("或", "or"))
+                            .font(.system(size: 11, weight: .regular, design: .rounded))
+                            .foregroundColor(AppTheme.textTertiary.opacity(0.5))
+                            .padding(.horizontal, 12)
+                        Rectangle().fill(AppTheme.border0).frame(height: 0.5)
+                    }.padding(.horizontal, 24).padding(.bottom, 16)
 
-                    // ── 恢复购买 + 条款 ──────────────────────
-                    VStack(spacing: 8) {
-                        Button(action: { Task { await pro.restore() } }) {
-                            Text(store.t("恢复购买", "Restore Purchase"))
-                                .font(.caption).foregroundColor(AppTheme.textTertiary)
-                                .underline()
-                        }
+                    // ── Pro 订阅卡 ────────────────────────────
+                    proCard.padding(.horizontal).padding(.bottom, 24)
 
-                        HStack(spacing: 16) {
-                            Button(action: { openURL("https://Wangvinci.github.io/dailynav/terms.html") }) {
-                                Text(store.t("服务条款", "Terms of Service"))
-                                    .font(.caption2).foregroundColor(AppTheme.textTertiary.opacity(0.7))
-                            }
-                            Button(action: { openURL("https://Wangvinci.github.io/dailynav/privacy.html") }) {
-                                Text(store.t("隐私政策", "Privacy Policy"))
-                                    .font(.caption2).foregroundColor(AppTheme.textTertiary.opacity(0.7))
-                            }
-                        }
-                    }
-                    .padding(.top, 8)
-
-                    Spacer(minLength: 20)
+                    // ── 底部操作 ──────────────────────────────
+                    footerLinks.padding(.bottom, 32)
                 }
             }
             .background(AppTheme.bg0.ignoresSafeArea())
@@ -78,52 +55,203 @@ struct ProPaywallSheet: View {
             }
             .overlay {
                 if pro.isLoading {
-                    Color.black.opacity(0.4).ignoresSafeArea()
-                    ProgressView().tint(.white).scaleEffect(1.2)
+                    Color.black.opacity(0.45).ignoresSafeArea()
+                    ProgressView().tint(.white).scaleEffect(1.4)
                 }
             }
         }
     }
 
-    // ── Plus 买断内容 ─────────────────────────────────────────
-    private var plusContent: some View {
-        VStack(spacing: 16) {
-            // 功能列表
-            VStack(spacing: 0) {
-                PaywallFeatureRow(icon: "target",              color: plusColor, text: store.t("无限目标（免费版仅1个）", "Unlimited goals (free: 1 only)"), tier: "Plus")
-                PaywallFeatureRow(icon: "checklist",           color: plusColor, text: store.t("无限任务（免费版每目标2个）", "Unlimited tasks (free: 2/goal)"), tier: "Plus")
-                PaywallFeatureRow(icon: "book.fill",           color: plusColor, text: store.t("今日心得 + 历史回顾", "Daily journal + history"), tier: "Plus")
-                PaywallFeatureRow(icon: "quote.bubble.fill",   color: plusColor, text: store.t("灵感语录无限解锁", "Unlimited inspiration quotes"), tier: "Plus")
-                PaywallFeatureRow(icon: "square.and.arrow.up", color: plusColor, text: store.t("分享目标成就卡片", "Share goal achievement cards"), tier: "Plus")
-                PaywallFeatureRow(icon: "chart.bar.fill",      color: plusColor, text: store.t("月度/年度数据分析", "Monthly & yearly analytics"), tier: "Plus", isLast: true)
-            }
-            .background(AppTheme.bg1).cornerRadius(14)
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(AppTheme.border0, lineWidth: 1))
-            .padding(.horizontal)
+    // ── Hero ─────────────────────────────────────────────────
+    private var heroHeader: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                Circle().fill(plusColor.opacity(0.08)).frame(width: 80, height: 80)
+                Circle().stroke(plusColor.opacity(0.18), lineWidth: 1).frame(width: 80, height: 80)
+                Image(systemName: "sparkles").font(.system(size: 32, weight: .light)).foregroundColor(plusColor)
+            }.padding(.top, 28)
+            Text("DailyNav")
+                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                .foregroundColor(AppTheme.textPrimary)
+            Text(store.t("解锁全部功能，开启更好的自己", "Unlock everything, become your best self"))
+                .font(.system(size: 13, weight: .regular, design: .rounded))
+                .foregroundColor(AppTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+        }
+    }
 
-            // 价格 + 购买按钮
-            VStack(spacing: 12) {
-                // 显示 StoreKit 本地化价格，否则用回退价
+    // ── Plus 买断卡 ───────────────────────────────────────────
+    private var plusCard: some View {
+        VStack(spacing: 0) {
+            // Card header
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle().fill(plusColor.opacity(0.14)).frame(width: 36, height: 36)
+                    Image(systemName: "star.fill").font(.system(size: 14)).foregroundColor(plusColor)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Plus").font(.system(size: 15, weight: .semibold, design: .rounded)).foregroundColor(AppTheme.textPrimary)
+                    Text(store.t("买断 · 永久使用", "One-time · Lifetime access"))
+                        .font(.system(size: 11, weight: .regular, design: .rounded)).foregroundColor(AppTheme.textTertiary)
+                }
+                Spacer()
                 let priceText = pro.plusProduct?.displayPrice ?? store.t("¥28", "$3.99")
-                Text(store.t("一次购买，永久使用", "Buy once, use forever"))
-                    .font(.caption).foregroundColor(AppTheme.textSecondary)
+                Text(priceText)
+                    .font(.system(size: 20, weight: .light, design: .rounded))
+                    .foregroundColor(plusColor)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 14)
 
-                Button(action: { Task { await pro.purchasePlus() } }) {
-                    HStack {
-                        Image(systemName: "star.fill").font(.subheadline)
-                        Text(store.t("购买 Plus · \(priceText)", "Get Plus · \(priceText)"))
-                            .font(.headline).fontWeight(.bold)
-                    }
-                    .frame(maxWidth: .infinity).padding(.vertical, 16)
-                    .background(LinearGradient(colors: [plusColor, plusColor.opacity(0.8)], startPoint: .leading, endPoint: .trailing))
-                    .cornerRadius(16).foregroundColor(AppTheme.bg0)
-                }
-            }.padding(.horizontal)
+            Divider().background(AppTheme.border0).padding(.horizontal, 12)
+
+            // Feature rows
+            VStack(spacing: 0) {
+                PaywallFeatureRow(icon: "target",              color: plusColor, text: store.t("无限目标 & 任务", "Unlimited goals & tasks"), tier: "Plus")
+                PaywallFeatureRow(icon: "book.fill",           color: plusColor, text: store.t("今日心得 + 历史回顾", "Daily journal + history"), tier: "Plus")
+                PaywallFeatureRow(icon: "chart.bar.fill",      color: plusColor, text: store.t("月度/年度数据统计", "Monthly & yearly analytics"), tier: "Plus")
+                PaywallFeatureRow(icon: "quote.bubble.fill",   color: plusColor, text: store.t("灵感语录无限解锁", "Unlimited inspiration quotes"), tier: "Plus")
+                PaywallFeatureRow(icon: "square.and.arrow.up", color: plusColor, text: store.t("分享目标成就卡片", "Share achievement cards"), tier: "Plus", isLast: true)
+            }
+
+            // Buy button
+            Button(action: { Task { await pro.purchasePlus() } }) {
+                let priceText = pro.plusProduct?.displayPrice ?? store.t("¥28", "$3.99")
+                Text(store.t("一次购买 · \(priceText)", "Buy Once · \(priceText)"))
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .frame(maxWidth: .infinity).padding(.vertical, 14)
+                    .background(LinearGradient(colors: [plusColor, plusColor.opacity(0.75)], startPoint: .leading, endPoint: .trailing))
+                    .foregroundColor(AppTheme.bg0).cornerRadius(12)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 14)
         }
+        .background(AppTheme.bg1)
+        .cornerRadius(16)
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(plusColor.opacity(0.18), lineWidth: 1))
     }
 
-    // Pro 订阅内容暂时隐藏，等后续版本推出
-    // private var proContent: some View { ... }
+    // ── Pro 订阅卡 ────────────────────────────────────────────
+    private var proCard: some View {
+        VStack(spacing: 0) {
+            // Card header
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle().fill(proColor.opacity(0.14)).frame(width: 36, height: 36)
+                    Image(systemName: "crown.fill").font(.system(size: 14)).foregroundColor(proColor)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text("Pro").font(.system(size: 15, weight: .semibold, design: .rounded)).foregroundColor(AppTheme.textPrimary)
+                        Text(store.t("包含 Plus 全部功能", "Includes all Plus features"))
+                            .font(.system(size: 10, weight: .regular, design: .rounded))
+                            .foregroundColor(proColor.opacity(0.8))
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(proColor.opacity(0.12)).cornerRadius(4)
+                    }
+                    Text(store.t("订阅 · 持续更新 AI 功能", "Subscription · Ongoing AI features"))
+                        .font(.system(size: 11, weight: .regular, design: .rounded)).foregroundColor(AppTheme.textTertiary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 16).padding(.vertical, 14)
+
+            // Plan toggle
+            HStack(spacing: 8) {
+                proPlanButton(.monthly)
+                proPlanButton(.yearly)
+            }
+            .padding(.horizontal, 14).padding(.bottom, 2)
+
+            Divider().background(AppTheme.border0).padding(.horizontal, 12).padding(.top, 10)
+
+            // Pro features
+            VStack(spacing: 0) {
+                PaywallFeatureRow(icon: "brain.head.profile", color: proColor, text: store.t("AI 智能周报 / 月报 / 年报", "AI weekly / monthly / yearly summaries"), tier: "Pro")
+                PaywallFeatureRow(icon: "sparkles",           color: proColor, text: store.t("AI 个性化成长洞察", "AI personalized growth insights"), tier: "Pro")
+                PaywallFeatureRow(icon: "lightbulb.fill",     color: proColor, text: store.t("AI 目标与习惯建议", "AI goal & habit suggestions"), tier: "Pro", isLast: true)
+            }
+
+            // Subscribe button
+            Button(action: { Task { await pro.purchasePro(yearly: selectedProPlan == .yearly) } }) {
+                let price = selectedProPlan == .yearly
+                    ? (pro.proYearly?.displayPrice ?? store.t("¥68/年", "$9.99/yr"))
+                    : (pro.proMonthly?.displayPrice ?? store.t("¥8/月", "$1.49/mo"))
+                Text(store.t("订阅 Pro · \(price)", "Subscribe Pro · \(price)"))
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .frame(maxWidth: .infinity).padding(.vertical, 14)
+                    .background(LinearGradient(colors: [proColor, proColor.opacity(0.75)], startPoint: .leading, endPoint: .trailing))
+                    .foregroundColor(AppTheme.bg0).cornerRadius(12)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 14)
+
+            // Subscription disclaimer
+            Text(store.t("订阅到期前24小时自动续费，可随时取消", "Auto-renews 24h before expiry. Cancel anytime."))
+                .font(.system(size: 10, weight: .regular, design: .rounded))
+                .foregroundColor(AppTheme.textTertiary.opacity(0.55))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16).padding(.bottom, 12)
+        }
+        .background(AppTheme.bg1)
+        .cornerRadius(16)
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(proColor.opacity(0.18), lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private func proPlanButton(_ plan: ProPlan) -> some View {
+        let isSelected = selectedProPlan == plan
+        let isYearly = plan == .yearly
+        let priceStr = isYearly
+            ? (pro.proYearly?.displayPrice  ?? store.t("¥68/年", "$9.99/yr"))
+            : (pro.proMonthly?.displayPrice ?? store.t("¥8/月",  "$1.49/mo"))
+        let label = isYearly ? store.t("年付", "Yearly") : store.t("月付", "Monthly")
+
+        Button(action: { withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) { selectedProPlan = plan } }) {
+            VStack(spacing: 3) {
+                HStack(spacing: 4) {
+                    Text(label).font(.system(size: 12, weight: .medium, design: .rounded))
+                    if isYearly {
+                        Text(store.t("省30%", "Save 30%"))
+                            .font(.system(size: 9, weight: .semibold, design: .rounded))
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(proColor.opacity(0.2))
+                            .foregroundColor(proColor).cornerRadius(4)
+                    }
+                }
+                Text(priceStr).font(.system(size: 11, weight: .regular, design: .rounded))
+                    .foregroundColor(isSelected ? AppTheme.textSecondary : AppTheme.textTertiary)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 10)
+            .foregroundColor(isSelected ? AppTheme.textPrimary : AppTheme.textTertiary)
+            .background(isSelected ? proColor.opacity(0.14) : AppTheme.bg2)
+            .cornerRadius(10)
+            .overlay(RoundedRectangle(cornerRadius: 10)
+                .stroke(isSelected ? proColor.opacity(0.4) : AppTheme.border0, lineWidth: isSelected ? 1.2 : 0.5))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // ── 底部链接 ──────────────────────────────────────────────
+    private var footerLinks: some View {
+        VStack(spacing: 10) {
+            Button(action: { Task { await pro.restore() } }) {
+                Text(store.t("恢复购买", "Restore Purchase"))
+                    .font(.system(size: 12, weight: .regular, design: .rounded))
+                    .foregroundColor(AppTheme.textTertiary).underline()
+            }
+            HStack(spacing: 20) {
+                Button(action: { openURL("https://Wangvinci.github.io/dailynav/terms.html") }) {
+                    Text(store.t("服务条款", "Terms"))
+                        .font(.system(size: 11, weight: .regular, design: .rounded))
+                        .foregroundColor(AppTheme.textTertiary.opacity(0.65))
+                }
+                Button(action: { openURL("https://Wangvinci.github.io/dailynav/privacy.html") }) {
+                    Text(store.t("隐私政策", "Privacy"))
+                        .font(.system(size: 11, weight: .regular, design: .rounded))
+                        .foregroundColor(AppTheme.textTertiary.opacity(0.65))
+                }
+            }
+        }
+    }
 
     private func openURL(_ urlString: String) {
         guard let url = URL(string: urlString) else { return }
