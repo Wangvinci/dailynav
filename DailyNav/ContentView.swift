@@ -1560,13 +1560,14 @@ struct DayGoalCard: View {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 5) {
                         Text(goal.category.uppercased())
-                            .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                            .font(.system(size: DSTSize.nano, weight: .semibold, design: .rounded))
                             .foregroundColor(goal.color.opacity(0.65))
-                            .kerning(1.6)
-                            .shadow(color: goal.color.opacity(0.22), radius: 3, x: 0, y: 0)
+                            .kerning(1.4)
+                            .shadow(color: goal.color.opacity(0.20), radius: 3, x: 0, y: 0)
                         if goal.goalType == .longterm {
-                            Text("∞").font(.system(size: 9, weight: .regular))
-                                .foregroundColor(goal.color.opacity(0.50))
+                            Image(systemName: "infinity")
+                                .font(.system(size: 7, weight: .medium))
+                                .foregroundColor(goal.color.opacity(0.48))
                         }
                     }
                     Text(goal.title)
@@ -1580,10 +1581,9 @@ struct DayGoalCard: View {
                 // Progress + stat
                 VStack(alignment: .trailing, spacing: 2) {
                     Text("\(Int(pct * 100))%")
-                        .font(.system(size: 24, weight: .thin, design: .rounded))
+                        .font(.system(size: 24, weight: .ultraLight, design: .rounded).monospacedDigit())
                         .foregroundColor(pct >= 1.0 ? goal.color : AppTheme.textPrimary.opacity(0.80))
-                        .monospacedDigit()
-                        .shadow(color: pct >= 1.0 ? goal.color.opacity(0.35) : .clear, radius: 5, x: 0, y: 0)
+                        .shadow(color: pct >= 1.0 ? goal.color.opacity(0.40) : .clear, radius: 6, x: 0, y: 0)
                     if goal.goalType == .longterm {
                         HStack(spacing: 3) {
                             Image(systemName: "flame.fill").font(.system(size: 8))
@@ -1598,15 +1598,25 @@ struct DayGoalCard: View {
                 }
 
                 // ── Expand/collapse chevron ──
-                Button(action: { withAnimation(.spring(response: 0.22)) { cardExpanded.toggle() } }) {
+                Button(action: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    withAnimation(.spring(response: AppTheme.animQuick, dampingFraction: AppTheme.animDamping)) { cardExpanded.toggle() }
+                }) {
                     Image(systemName: cardExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(AppTheme.textTertiary.opacity(0.55))
-                        .frame(width: 20, height: 20)
-                        .background(Color.white.opacity(0.04))
-                        .clipShape(RoundedRectangle(cornerRadius: 5))
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(AppTheme.textTertiary.opacity(cardExpanded ? 0.65 : 0.45))
+                        .frame(width: 24, height: 24)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(Color.white.opacity(cardExpanded ? 0.07 : 0.035))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.white.opacity(cardExpanded ? 0.10 : 0.05), lineWidth: 0.5)
+                        )
                 }
-                .padding(.leading, 8)
+                .buttonStyle(ScaleButtonStyle(scale: 0.88))
+                .padding(.leading, 6)
             }
             .padding(.top, 10)
             .padding(.bottom, 8)
@@ -1631,12 +1641,13 @@ struct DayGoalCard: View {
                     HStack(spacing: 5) {
                         ForEach(effectiveTasks.prefix(visibleCount)) { task in
                             HStack(spacing: 4) {
-                                Circle()
-                                    .fill(task.isCompleted ? goal.color : Color.white.opacity(0.15))
-                                    .frame(width: 4, height: 4)
+                                Image(systemName: task.isCompleted ? "checkmark" : "circle.fill")
+                                    .font(.system(size: task.isCompleted ? 7 : 4, weight: .bold))
+                                    .foregroundColor(task.isCompleted ? goal.color.opacity(0.80) : Color.white.opacity(0.20))
                                 Text(task.title)
-                                    .font(.system(size: 10, weight: .regular))
+                                    .font(.system(size: 10, weight: .regular, design: .rounded))
                                     .foregroundColor(task.isCompleted ? goal.color.opacity(0.55) : AppTheme.textSecondary.opacity(0.70))
+                                    .strikethrough(task.isCompleted, color: goal.color.opacity(0.35))
                                     .lineLimit(1)
                                 if let m = task.estimatedMinutes {
                                     Text("·\(m)m").font(.system(size: 9, design: .monospaced))
@@ -2473,7 +2484,7 @@ struct TodayView: View {
         NavigationView {
             ScrollViewReader { proxy in
             ScrollView {
-                VStack(spacing:14){
+                VStack(spacing: AppTheme.cardGap){
                     // ── Today page header — same PageHeaderView as Plan/Me ──
                     PageHeaderView(
                         title: store.t(key: L10n.todayNav),
@@ -2714,16 +2725,18 @@ struct TodayJournalCard: View {
                     Text(store.t(key: L10n.todayJournal))
                         .font(.system(size:DSTSize.sectionTitle, weight:.semibold, design:.rounded))
                         .foregroundColor(AppTheme.textPrimary.opacity(0.88))
-                        .kerning(0.3)
                     Spacer()
-                    if draft.rating > 0 { Text(emojis[draft.rating-1]).font(.body) }
-                    // 关键词计数徽标
+                    if draft.rating > 0 {
+                        Text(emojis[draft.rating-1])
+                            .font(.system(size: 18))
+                            .transition(.scale.combined(with: .opacity))
+                    }
                     let kwCount = draft.gainKeywords.count + draft.challengeKeywords.count
                     if kwCount > 0 {
                         Text("\(kwCount)\(store.language == .english ? " words" : store.language == .japanese ? "語" : store.language == .korean ? "개" : store.language == .spanish ? " palabras" : "词")")
-                            .font(.system(size:DSTSize.micro, weight:.regular, design:.rounded))
-                            .padding(.horizontal,5).padding(.vertical,2)
-                            .background(AppTheme.accent.opacity(0.12)).cornerRadius(4)
+                            .font(.system(size:DSTSize.micro, weight:.medium, design:.rounded))
+                            .padding(.horizontal,6).padding(.vertical,2)
+                            .background(Capsule().fill(AppTheme.accent.opacity(0.12)))
                             .foregroundColor(AppTheme.accent.opacity(0.80))
                     }
                     if isSubmitted {
@@ -2732,10 +2745,12 @@ struct TodayJournalCard: View {
                             .foregroundColor(AppTheme.accent)
                     }
                     Image(systemName: expanded ? "chevron.up":"chevron.down")
-                        .font(.system(size:DSTSize.cardMicro, weight:.medium, design:.rounded))
+                        .font(.system(size:DSTSize.nano, weight:.medium, design:.rounded))
                         .foregroundColor(AppTheme.textTertiary.opacity(0.40))
+                        .frame(width:16, height:16)
                 }.padding(.horizontal,14).padding(.top,14).padding(.bottom,10)
             }
+            .buttonStyle(ScaleButtonStyle(scale: 0.986))
 
             if expanded {
                 Rectangle().fill(AppTheme.border0).frame(height:0.5).padding(.horizontal,14)
@@ -2744,16 +2759,32 @@ struct TodayJournalCard: View {
                     // ── 1. 心情 ─────────────────────────────
                     VStack(alignment:.leading, spacing:8) {
                         Text(moodLabel).font(.caption).foregroundColor(draft.rating > 0 ? AppTheme.accent : AppTheme.textTertiary)
-                        HStack(spacing:8) {
+                        HStack(spacing:6) {
                             ForEach(1...5, id:\.self) { i in
-                                Button(action:{ draft.rating = i }) {
-                                    Text(emojis[i-1]).font(.title2).frame(maxWidth:.infinity).padding(.vertical,8)
-                                        .background(draft.rating==i ? AppTheme.accent.opacity(0.15) : AppTheme.bg2).cornerRadius(AppTheme.cornerM)
-                                        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(draft.rating==i ? AppTheme.accent.opacity(0.5) : AppTheme.border0, lineWidth:1))
+                                Button(action:{
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    withAnimation(.spring(response: AppTheme.animQuick, dampingFraction: 0.65)) {
+                                        draft.rating = i
+                                    }
+                                }) {
+                                    Text(emojis[i-1])
+                                        .font(.system(size: 22))
+                                        .frame(maxWidth:.infinity)
+                                        .padding(.vertical, 9)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: AppTheme.cornerM)
+                                                .fill(draft.rating == i ? AppTheme.accent.opacity(0.15) : AppTheme.bg2)
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: AppTheme.cornerM)
+                                                .stroke(draft.rating == i ? AppTheme.accent.opacity(0.45) : AppTheme.border0,
+                                                        lineWidth: draft.rating == i ? 1.2 : 0.5)
+                                        )
+                                        .scaleEffect(draft.rating == i ? 1.06 : 1.0)
                                 }
+                                .buttonStyle(ScaleButtonStyle(scale: 0.88))
                                 .accessibilityLabel(moodLabels_en[i-1])
                                 .accessibilityAddTraits(.isButton)
-                                .animation(.spring(response:0.2), value:draft.rating)
                             }
                         }
                     }
@@ -2770,7 +2801,7 @@ struct TodayJournalCard: View {
 
                     // ── 提交 ────────────────────────────────
                     Button(action:{
-                        // 所有关键词均已实时写入 store
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                         var toSubmit = draft
                         if let live = store.review(for:store.today) {
                             toSubmit.challengeKeywords = live.challengeKeywords
@@ -2780,21 +2811,36 @@ struct TodayJournalCard: View {
                         draft = toSubmit
                         isSubmitted = true
                         withAnimation(.spring(response:AppTheme.animStandard)){ expanded = false }
-                        DispatchQueue.main.asyncAfter(deadline:.now()+0.4){
-                            showSmartSummary = true
-                        }
+                        DispatchQueue.main.asyncAfter(deadline:.now()+0.4){ showSmartSummary = true }
                     }) {
-                        HStack(spacing:6) {
+                        HStack(spacing:7) {
                             Image(systemName: isSubmitted ? "arrow.clockwise.circle.fill" : "sparkles")
+                                .font(.system(size: DSTSize.label, weight: .medium))
                             Text(isSubmitted ? store.t(key: L10n.updateJournal) : store.t(key: L10n.submitJournal))
+                                .font(.system(size: DSTSize.label, weight: .semibold, design: .rounded))
                         }
-                        .font(.subheadline).fontWeight(.medium)
-                        .frame(maxWidth:.infinity).padding(.vertical,13)
-                        .background(isSubmitted ? AppTheme.bg2 : AppTheme.accent.opacity(0.15)).cornerRadius(AppTheme.cornerM)
-                        .foregroundColor(isSubmitted ? AppTheme.textTertiary : AppTheme.accent)
-                        .overlay(RoundedRectangle(cornerRadius:AppTheme.cornerM).stroke(isSubmitted ? AppTheme.border0 : AppTheme.accent.opacity(0.4), lineWidth:1))
+                        .frame(maxWidth:.infinity)
+                        .padding(.vertical, 14)
+                        .background(
+                            Group {
+                                if isSubmitted {
+                                    AnyView(RoundedRectangle(cornerRadius: AppTheme.cornerM).fill(AppTheme.bg2))
+                                } else {
+                                    AnyView(RoundedRectangle(cornerRadius: AppTheme.cornerM)
+                                        .fill(LinearGradient(
+                                            colors: [AppTheme.accent, AppTheme.accent.opacity(0.70)],
+                                            startPoint: .topLeading, endPoint: .bottomTrailing
+                                        )))
+                                }
+                            }
+                        )
+                        .foregroundColor(isSubmitted ? AppTheme.textTertiary : AppTheme.bg0)
+                        .overlay(RoundedRectangle(cornerRadius: AppTheme.cornerM)
+                            .stroke(isSubmitted ? AppTheme.border0 : AppTheme.accent.opacity(0.30), lineWidth: 0.8))
+                        .shadow(color: isSubmitted ? .clear : AppTheme.accent.opacity(0.28), radius: 10, x: 0, y: 4)
                     }
-                    .disabled(!hasContent).opacity(hasContent ? 1 : 0.45)
+                    .buttonStyle(ScaleButtonStyle())
+                    .disabled(!hasContent).opacity(hasContent ? 1 : 0.42)
                 }
                 .padding(14)
                 .transition(.opacity.combined(with:.move(edge:.top)))
