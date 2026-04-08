@@ -361,6 +361,20 @@ extension AppTheme {
     static let cardGap:   CGFloat = 12   // gap between cards
     static let sectionGap: CGFloat = 20  // gap between sections
 
+    // Row heights
+    static let rowMinH:   CGFloat = 52   // minimum tappable list row height
+    static let rowCompact: CGFloat = 44  // compact row (badges, meta rows)
+
+    // Icon sizes — 3-stop scale
+    static let iconS:  CGFloat = 12   // inline / decorative
+    static let iconM:  CGFloat = 16   // section / card icons
+    static let iconL:  CGFloat = 22   // hero / empty state icons
+
+    // Opacity scale — semantic foreground opacity
+    static let opActive:   Double = 0.90  // primary content
+    static let opSecondary: Double = 0.60  // secondary / labels
+    static let opDisabled:  Double = 0.35  // disabled / placeholder
+
     // Hairline
     static let hairline:  CGFloat = 0.5
 
@@ -378,6 +392,34 @@ extension AppTheme {
 
     // Minimum tap target (Apple HIG)
     static let tapMin: CGFloat = 44
+}
+
+// ─────────────────────────────────────────────────────────────
+// MARK: 6b.  ScaleButtonStyle — press feedback on any button
+// Usage: Button { } label: { }.buttonStyle(ScaleButtonStyle())
+//        or shorthand:  .scaleButton()
+// ─────────────────────────────────────────────────────────────
+struct ScaleButtonStyle: ButtonStyle {
+    var scale: CGFloat = 0.965
+    var animResponse: Double = 0.18
+    var animDamping:  Double = 0.70
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1.0)
+            .brightness(configuration.isPressed ? 0.04 : 0)
+            .animation(
+                .spring(response: animResponse, dampingFraction: animDamping),
+                value: configuration.isPressed
+            )
+    }
+}
+
+extension View {
+    /// Attach a spring press-scale feedback to any button.
+    func scaleButton(scale: CGFloat = 0.965) -> some View {
+        buttonStyle(ScaleButtonStyle(scale: scale))
+    }
 }
 
 
@@ -719,18 +761,28 @@ struct PageHeaderView: View {
     var accentColor: Color = AppTheme.accent
 
     // Uniform layout tokens
-    static let topPad:    CGFloat = 4     // below nav bar safe area
+    static let topPad:    CGFloat = 10    // below nav bar safe area
     static let sidePad:   CGFloat = 20    // left/right content margin
-    static let botPad:    CGFloat = 6     // space before first content card
+    static let botPad:    CGFloat = 10    // space before first content card
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 5) {
             GlassImprintTitle(text: title, accentColor: accentColor)
+            // Accent underline marker — brand anchor line
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(
+                    LinearGradient(
+                        colors: [accentColor.opacity(0.60), accentColor.opacity(0.12), Color.clear],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                )
+                .frame(width: 40, height: 2)
             if !subtitle.isEmpty {
                 Text(subtitle)
                     .font(.system(size: DSTSize.caption, weight: .regular, design: .rounded))
                     .foregroundColor(AppTheme.textTertiary.opacity(0.65))
                     .tracking(0.2)
+                    .padding(.top, 1)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

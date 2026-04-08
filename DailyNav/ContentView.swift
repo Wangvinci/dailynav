@@ -3053,14 +3053,14 @@ struct TodayGoalSection: View {
             // HEADER — always visible
             // ═══════════════════════════════════════════════
             Button(action:{
-                withAnimation(.spring(response:0.38, dampingFraction:0.82)) { collapsed.toggle() }
+                withAnimation(.spring(response:AppTheme.animStandard, dampingFraction:AppTheme.animDamping)) { collapsed.toggle() }
             }) {
                 HStack(spacing:12) {
                     // ── Progress ring (Apple Fitness style) ─
                     ZStack {
                         Circle()
-                            .stroke(goal.color.opacity(0.15), lineWidth:3)
-                            .frame(width:38, height:38)
+                            .stroke(goal.color.opacity(0.13), lineWidth:3.5)
+                            .frame(width:42, height:42)
                         Circle()
                             .trim(from:0, to:CGFloat(pct))
                             .stroke(
@@ -3070,14 +3070,14 @@ struct TodayGoalSection: View {
                                     startAngle:.degrees(-90),
                                     endAngle:.degrees(-90 + 360 * pct)
                                 ),
-                                style: StrokeStyle(lineWidth:3, lineCap:.round)
+                                style: StrokeStyle(lineWidth:3.5, lineCap:.round)
                             )
-                            .frame(width:38, height:38)
+                            .frame(width:42, height:42)
                             .rotationEffect(.degrees(-90))
                             .animation(.spring(response:0.5, dampingFraction:0.75), value:pct)
                         if pct >= 1.0 {
                             Image(systemName:"checkmark")
-                                .font(.system(size:DSTSize.micro, weight:.bold, design:.rounded))
+                                .font(.system(size:DSTSize.caption, weight:.bold, design:.rounded))
                                 .foregroundColor(goal.color)
                         } else {
                             Text("\(Int(pct*100))")
@@ -3089,8 +3089,8 @@ struct TodayGoalSection: View {
                     // ── Title + metadata ──────────────────────
                     VStack(alignment:.leading, spacing:3) {
                         Text(goal.title)
-                            .font(.system(size:DSTSize.label, weight:.semibold, design:.rounded))
-                            .foregroundColor(AppTheme.textPrimary.opacity(0.90))
+                            .font(.system(size:15, weight:.semibold, design:.rounded))
+                            .foregroundColor(AppTheme.textPrimary.opacity(0.92))
                             .lineLimit(1)
                         HStack(spacing:6) {
                             if goal.goalType == .longterm {
@@ -3182,7 +3182,7 @@ struct TodayGoalSection: View {
                 .padding(.horizontal,14).padding(.vertical,12)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(ScaleButtonStyle(scale: 0.982))
 
             // ═══════════════════════════════════════════════
             // EXPANDED TASK LIST
@@ -3226,7 +3226,10 @@ struct TodayGoalSection: View {
                         .padding(.horizontal,14).padding(.vertical,10)
                     }
                 }
-                .transition(.opacity.combined(with:.move(edge:.top)))
+                .transition(.asymmetric(
+                    insertion: .opacity.combined(with: .move(edge: .top)),
+                    removal:   .opacity.combined(with: .scale(scale: 0.97, anchor: .top))
+                ))
             }
         }
         // cyberGlass style matching Goals page
@@ -3488,25 +3491,33 @@ struct TodayDailySummaryCard: View {
             // ── 完成统计行 ──
             HStack(spacing: 16) {
                 ZStack {
-                    Circle().stroke(AppTheme.bg3, lineWidth: 3.5).frame(width: 56, height: 56)
-                    Circle()
-                        .stroke(AppTheme.accent.opacity(0.08), lineWidth: 8)
-                        .frame(width: 56, height: 56)
+                    // Outer ambient glow ring
+                    Circle().stroke(AppTheme.accent.opacity(0.06), lineWidth: 10).frame(width: 64, height: 64)
+                    // Track ring
+                    Circle().stroke(AppTheme.bg3, lineWidth: 4).frame(width: 64, height: 64)
+                    // Progress arc
                     Circle().trim(from: 0, to: rate)
                         .stroke(
-                            AngularGradient(colors:[AppTheme.accent.opacity(0.7), AppTheme.accent, AppTheme.accent.opacity(0.85)],
+                            AngularGradient(colors:[AppTheme.accent.opacity(0.65), AppTheme.accent, AppTheme.accent.opacity(0.90)],
                                            center:.center, startAngle:.degrees(-90), endAngle:.degrees(270)),
-                            style: StrokeStyle(lineWidth: 3.5, lineCap: .round)
+                            style: StrokeStyle(lineWidth: 4, lineCap: .round)
                         )
-                        .frame(width: 56, height: 56).rotationEffect(.degrees(-90))
-                        .animation(.easeOut(duration: 0.7), value: rate)
-                        .shadow(color: AppTheme.accent.opacity(0.4), radius: 4, x:0, y:0)
-                    Text("\(Int(rate*100))%").font(.system(size: 10, weight: .semibold)).foregroundColor(AppTheme.accent)
+                        .frame(width: 64, height: 64).rotationEffect(.degrees(-90))
+                        .animation(.spring(response: 0.6, dampingFraction: 0.8), value: rate)
+                        .shadow(color: AppTheme.accent.opacity(rate > 0 ? 0.45 : 0), radius: 5, x:0, y:0)
+                    VStack(spacing: 0) {
+                        Text("\(Int(rate*100))")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit())
+                            .foregroundColor(AppTheme.accent)
+                        Text("%")
+                            .font(.system(size: 7, weight: .regular, design: .rounded))
+                            .foregroundColor(AppTheme.accent.opacity(0.7))
+                    }
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(alignment: .lastTextBaseline, spacing: 4) {
-                        Text("\(completed)").font(.system(size: 30, weight: .ultraLight)).foregroundColor(AppTheme.textPrimary)
-                        Text("/ \(total)").font(.system(size: 13)).foregroundColor(AppTheme.textTertiary)
+                        Text("\(completed)").font(.system(size: 32, weight: .ultraLight, design: .rounded)).foregroundColor(AppTheme.textPrimary)
+                        Text("/ \(total)").font(.system(size: 13, design: .rounded)).foregroundColor(AppTheme.textTertiary)
                         Text(store.t(key: L10n.doneLabel)).font(.system(size: DSTSize.caption, weight: .regular, design:.rounded)).misty(.tertiary)
                     }
                     Text(rate >= 1.0 ? store.t(key: L10n.allDoneToday) :
